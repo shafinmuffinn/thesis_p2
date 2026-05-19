@@ -52,9 +52,10 @@ class EEGNet_tor(nn.Module):
         self.depthwiseBN = nn.BatchNorm2d(F1 * D)
         self.depthwisePool = nn.AvgPool2d((1, 4))
 
-        # Applying max-norm constraint
-        self.depthwiseConv.register_forward_hook(
-            lambda module, inputs, outputs: module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate))
+        # Applying max-norm constraint (real function, not lambda — lambdas
+        # implicitly return the renorm result, which PyTorch then uses to
+        # replace the layer's output, silently corrupting the forward pass).
+        self.depthwiseConv.register_forward_hook(_make_max_norm_hook(norm_rate))
 
         # Block 2
         self.separableConv = nn.Conv2d(F1 * D, F2, (1, 16), padding='same', bias=False)
@@ -66,9 +67,8 @@ class EEGNet_tor(nn.Module):
         self.dense = nn.Linear(F2 * ((Samples // 4 // 8)), nb_classes)
         self.softmax = nn.Softmax(dim=1)
 
-        # Applying max-norm constraint
-        self.dense.register_forward_hook(
-            lambda module, inputs, outputs: module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate))
+        # Same max-norm constraint on the final dense layer.
+        self.dense.register_forward_hook(_make_max_norm_hook(norm_rate))
 
     def forward(self, x):
         x = self.firstConv(x)
