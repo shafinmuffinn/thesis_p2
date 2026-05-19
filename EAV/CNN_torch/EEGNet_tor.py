@@ -1,7 +1,8 @@
 from Dataload_eeg import *
 import torch
 import torch.nn as nn
-from Fusion.VIT_audio.Transformer_audio import Trainer_uni
+# NOTE: removed `from Fusion.VIT_audio.Transformer_audio import Trainer_uni`
+# That module does not exist in the repo; Trainer_uni is defined locally below.
 #from tensorflow.keras.models import Model
 from torch.nn.utils import weight_norm
 
