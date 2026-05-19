@@ -1,0 +1,42 @@
+# Reference-only repo — not a dependency, kept locally for copy-pasting cross-attention
+# snippets on Day 4. If you change your mind and want it tracked, remove this line.
+multimodal-emotion-recognition/
+
+# Data — kept on Drive, not in git
+data/
+*.pkl
+*.mat
+*.wav
+*.mp4
+*.npy
+
+# Model weights / checkpoints
+checkpoints/
+pretrained/
+*.pth
+*.pth.tar
+*.bin
+*.safetensors
+
+# Logs and results
+logs/
+results/
+wandb/
+runs/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.python-version
+.venv/
+venv/
+*.egg-info/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Colab artifacts
+sample_data/
