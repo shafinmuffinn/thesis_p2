@@ -24,11 +24,19 @@ class ImageClassifierTrainer:
 
         self.test_prediction = list()
 
-        # Initialize model and processor
+        # Initialize model and processor.
+        # NOTE: the pretrained checkpoint (dima806/facial_emotions_image_detection)
+        # has 7 output classes. Using num_labels=N + ignore_mismatched_sizes=True
+        # makes from_pretrained drop the head, re-init it at N outputs, AND update
+        # config.num_labels — which is what transformers uses internally for the
+        # CE-loss reshape when you pass labels=... Without updating the config,
+        # the internal loss tries to .view(-1, 7) on (B, 5) logits and crashes.
         self.processor = AutoImageProcessor.from_pretrained(model_path)
-        self.model = AutoModelForImageClassification.from_pretrained(model_path)
-        self.model.classifier = torch.nn.Linear(self.model.config.hidden_size, self.num_labels)
-        self.model.num_labels = self.num_labels
+        self.model = AutoModelForImageClassification.from_pretrained(
+            model_path,
+            num_labels=self.num_labels,
+            ignore_mismatched_sizes=True,
+        )
 
         self.model.to(self.device)
 
