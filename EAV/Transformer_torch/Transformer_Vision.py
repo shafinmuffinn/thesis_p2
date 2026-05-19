@@ -58,13 +58,30 @@ class ImageClassifierTrainer:
         return dataloader, processed_x, y_repeated
 
     def preprocess_images(self, image_list):
-        pixel_values_list = []
-        for img_set in image_list:
-            for img in img_set:
-                processed = self.processor(images=img, return_tensors="pt")
-                pixel_values = processed.pixel_values.squeeze()
-                pixel_values_list.append(pixel_values)
-        return torch.stack(pixel_values_list).to(self.device)
+        ## ORIGINAL CODE: process each image one by one, stack on CPU, then move to GPU at train time. OOMs Colab Free.
+        # pixel_values_list = []
+        # for img_set in image_list:
+        #     for img in img_set:
+        #         processed = self.processor(images=img, return_tensors="pt")
+        #         pixel_values = processed.pixel_values.squeeze()
+        #         pixel_values_list.append(pixel_values)
+        # return torch.stack(pixel_values_list).to(self.device)
+        ## ORIGINAL CODE ENDS!
+        # Flatten clips x frames into one list, process in batches of 64.
+        # Keep result on CPU; the DataLoader moves per-batch to GPU at train
+        # time. Original code stacked all 10k tensors on CPU then dumped 4 GB
+        # onto GPU upfront, which OOM'd Colab Free.
+        all_imgs = [img for clip in image_list for img in clip]
+        total = len(all_imgs)
+        chunks = []
+        BATCH = 64
+        for i in range(0, total, BATCH):
+            batch = all_imgs[i:i+BATCH]
+            processed = self.processor(images=batch, return_tensors="pt")
+            chunks.append(processed.pixel_values)  # (B, 3, 224, 224) float32
+            if (i // BATCH) % 20 == 0:
+                print(f"  preprocessing {min(i+BATCH, total)}/{total}", flush=True)
+        return torch.cat(chunks, dim=0)  # CPU tensor
 
     def train(self, epochs=3, lr=None, freeze=True, log = False):
         # Update learning rate if provided, otherwise use the initial learning rate

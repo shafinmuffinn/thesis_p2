@@ -1,8 +1,11 @@
 from Dataload_eeg import *
 import torch
 import torch.nn as nn
-# NOTE: removed `from Fusion.VIT_audio.Transformer_audio import Trainer_uni`
+from torch.utils.data import DataLoader, TensorDataset
+# NOTE: removed `from Fusion.VIT_audio.Transformer_audio import Trainer_uni`.
 # That module does not exist in the repo; Trainer_uni is defined locally below.
+# Side-effect of removing it: TensorDataset/DataLoader stopped being pulled in
+# transitively, so we now import them explicitly above.
 #from tensorflow.keras.models import Model
 from torch.nn.utils import weight_norm
 
@@ -12,6 +15,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.parametrizations import spectral_norm
 import torch.optim as optim
+
+
+def _make_max_norm_hook(norm_rate):
+    """Forward-hook factory that L2-renorms `module.weight` along dim 0.
+
+    Used to mimic Keras's MaxNorm kernel constraint on EEGNet's depthwise and
+    dense layers.
+
+    IMPORTANT: the hook MUST return None — PyTorch's forward_hook protocol
+    treats any returned tensor as a replacement for the layer's output. The
+    original code used a lambda that implicitly returned the renormed weight
+    tensor, which silently overwrote the conv output with a (out, in/g, kH, kW)
+    weight tensor and crashed BatchNorm with a channel-count mismatch.
+    """
+    def hook(module, inputs, outputs):
+        module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate)
+        # implicit return None
+    return hook
+
 
 class EEGNet_tor(nn.Module):
     def __init__(self, nb_classes, Chans=30, Samples=500, dropoutRate=0.5, kernLength=300, F1=8, D=8, F2=64,
