@@ -62,10 +62,12 @@ class EEGNet_tor(nn.Module):
         self.separableBN = nn.BatchNorm2d(F2)
         self.separablePool = nn.AvgPool2d((1, 8))
 
-        # Final layers
+        # Final layers — note: NO trailing Softmax. CrossEntropyLoss expects
+        # raw logits and applies log-softmax internally for numerical stability.
+        # Applying a Softmax here and then passing to CE caused vanishing
+        # gradients on Day 1 (EEG accuracy stuck near chance ~24%).
         self.flatten = nn.Flatten()
         self.dense = nn.Linear(F2 * ((Samples // 4 // 8)), nb_classes)
-        self.softmax = nn.Softmax(dim=1)
 
         # Same max-norm constraint on the final dense layer.
         self.dense.register_forward_hook(_make_max_norm_hook(norm_rate))
@@ -86,7 +88,7 @@ class EEGNet_tor(nn.Module):
         x = self.dropout(x)
         x = self.flatten(x)
         x = self.dense(x)
-        x = self.softmax(x)
+        # Return raw logits — Softmax removed (see __init__ comment).
         return x
 
 class Trainer_uni:
