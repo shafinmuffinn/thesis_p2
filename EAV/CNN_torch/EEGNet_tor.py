@@ -119,8 +119,13 @@ class Trainer_uni:
         return dataloader
 
     def train(self):
-        self.model.train()  # Set model to training mode
         for epoch in range(self.num_epochs):
+            # NB: re-enter train mode at the start of every epoch. validate()
+            # below switches the model to eval mode; if .train() is set only
+            # once before the loop (as in the upstream EAV repo), epochs 2..N
+            # silently train with BatchNorm in eval mode (frozen running stats)
+            # and Dropout disabled, severely impairing convergence.
+            self.model.train()
             for batch_idx, (data, targets) in enumerate(self.train_dataloader):
                 data = data.to(self.device)
                 targets = targets.to(self.device)
