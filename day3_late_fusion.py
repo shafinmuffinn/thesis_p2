@@ -26,6 +26,7 @@ from paths import CHECKPOINTS, RESULTS
 
 LOGIT_DIR = CHECKPOINTS / "day2_logits"
 OUT_CSV = RESULTS / "day3_late_fusion.csv"
+PER_TRIAL_CSV = RESULTS / "day3_per_trial_coherence.csv"
 
 MODALITIES = ("audio", "vision", "eeg")
 
@@ -48,6 +49,15 @@ def log_softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
 
 def accuracy(preds: np.ndarray, labels: np.ndarray) -> float:
     return float((preds == labels).mean())
+
+
+def symmetric_kl(p: np.ndarray, q: np.ndarray, eps: float = 1e-10) -> np.ndarray:
+    """Per-row symmetric KL divergence between two probability matrices of
+    shape (N, 5). Returns an (N,) array of nonneg scalars."""
+    p = np.clip(p, eps, 1.0)
+    q = np.clip(q, eps, 1.0)
+    return 0.5 * (np.sum(p * np.log(p / q), axis=-1)
+                  + np.sum(q * np.log(q / p), axis=-1))
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +150,23 @@ def main() -> None:
         csv.writer(f).writerow(
             ["subject", "scheme", "test_acc", "note"]
         )
+    # Per-trial coherence file: feeds Day 7's Listen-vs-Speak analysis.
+    with open(PER_TRIAL_CSV, "w", newline="") as f:
+        csv.writer(f).writerow([
+            "subject", "trial", "true_label",
+            "audio_pred", "vision_pred", "eeg_pred",
+            "kl_audio_vision", "kl_audio_eeg", "kl_vision_eeg",
+            "mean_disagreement", "all_three_agree",
+            "fused_pred_mean_softmax", "fused_correct",
+        ])
 
     def log_row(sub, scheme, acc, note=""):
         with open(OUT_CSV, "a", newline="") as f:
             csv.writer(f).writerow([sub, scheme, f"{acc:.6f}", note])
+
+    def log_trials(rows):
+        with open(PER_TRIAL_CSV, "a", newline="") as f:
+            csv.writer(f).writerows(rows)
 
     # Header
     cols = ("Sub", "audio", "vision", "eeg",
@@ -194,6 +217,30 @@ def main() -> None:
         log_row(sub, "mean-softmax",    acc_mean)
         log_row(sub, "log-sum",         acc_log)
         log_row(sub, "majority-vote",   acc_mv)
+
+        # ---- per-trial coherence (for Day 7) ----
+        p_a = softmax(logits["audio"])
+        p_v = softmax(logits["vision"])
+        p_e = softmax(logits["eeg"])
+        top1 = {m: p.argmax(axis=-1) for m, p in
+                zip(MODALITIES, (p_a, p_v, p_e))}
+        kl_av = symmetric_kl(p_a, p_v)
+        kl_ae = symmetric_kl(p_a, p_e)
+        kl_ve = symmetric_kl(p_v, p_e)
+        mean_kl = (kl_av + kl_ae + kl_ve) / 3.0
+        all_agree = (top1["audio"] == top1["vision"]) & \
+                    (top1["vision"] == top1["eeg"])
+        fused_pred = ((p_a + p_v + p_e) / 3.0).argmax(axis=-1)
+
+        rows = [
+            [sub, i, int(labels[i]),
+             int(top1["audio"][i]), int(top1["vision"][i]), int(top1["eeg"][i]),
+             f"{kl_av[i]:.6f}", f"{kl_ae[i]:.6f}", f"{kl_ve[i]:.6f}",
+             f"{mean_kl[i]:.6f}", bool(all_agree[i]),
+             int(fused_pred[i]), bool(fused_pred[i] == labels[i])]
+            for i in range(len(labels))
+        ]
+        log_trials(rows)
 
         row = (f"{sub:02d}",
                f"{per_mod_acc['audio']:.3f}",
