@@ -43,6 +43,26 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - Per-subject training time at *paper-faithful* hyperparams (Day 2+): AST ~25 min + ViT ~60 min + EEGNet ~5 min ≈ **90 min/subject**. 42 subjects ≈ 63 h total — must spread across many sessions, save checkpoints aggressively to Drive.
 - Colab Pro ($10/mo) gives 24 h sessions + fewer disconnects + occasional V100/A100. **Recommended for the 10-day window.**
 
+## Day 4 status (2026-05-22)
+- **Compute pivot**: 4080 GPU (16 GB VRAM) now available for local training. Workflow is: develop and train locally on the workstation, keep Drive only for archival of Day-2 artefacts. Colab Pro becomes optional, not load-bearing.
+- **`fusion/` module created** at the project root, separate from the EAV repo (which we did not fork into our contribution).
+  - [fusion/trimodal_attention.py](fusion/trimodal_attention.py) — `TrimodalAttentionFusion` class: 2.28 M trainable parameters, self-attention over 3 modality tokens, common embedding dim D=256, 2 transformer encoder layers, 8 heads, GELU, LayerNorm pre-norm.
+  - `forward()` returns a dict with keys `logits`, `audio_embed`, `vision_embed`, `eeg_embed`, `fused_embed`. This is a stable contract for the Phase 2 temporal head and must not be broken by later edits.
+  - `forward()` with `x_eeg = torch.zeros(B, 960)` produces finite output (logits norm ~0.99). Architecture permits zero-EEG inference; Day 7's modality dropout will make it meaningful.
+- **Design decision**: 3-token self-attention rather than Lee et al.'s 6-way pairwise cross-attention. With single-token-per-modality pooled features (which is what our trained encoders produce), pairwise cross-attentions degenerate to learned projections. Self-attention across the modality-token sequence does the same work with fewer parameters and cleaner code. Going to sequence-level features and full 6-way CMA is a localised swap for Day 6 if MERCL stretch-goal is taken on.
+- **Day 4 explicitly excludes**: connection to trained encoders (Day 5), training on EAV (Day 5), modality dropout (Day 7). Today is architecture only.
+
+## Day 2 status (2026-05-20)
+- **Softmax removed from `EEGNet_tor.forward`** (and the `nn.Softmax` instance from `__init__`). `CrossEntropyLoss` consumes raw logits and applies log-softmax internally; the previous double-softmax flattened gradients somewhat but, on a 50-epoch sanity test, the improvement was only ~1 pp (0.308 → 0.317 for Subject 1). Useful for cleanliness, not the dominant blocker.
+- **Fixed `Trainer_uni.train()` mode bug**: the upstream EAV repo called `self.model.train()` once before the epoch loop, but `validate()` switches the model to `eval()` mode at the end of every epoch. From epoch 2 onwards, training happened with BatchNorm in eval mode (frozen running stats) and Dropout disabled — silently crippling convergence. Fix: moved `self.model.train()` inside the epoch loop. This is the more likely dominant cause of slow EEG learning.
+- **Re-calibrated EEG expectations.** Per-subject EAV is a genuine low-data regime (280 train trials × 30 channels, no pretraining). EAV's published EEGNet baseline is 36.7 %, and Lee et al.'s EEG-alone numbers in their MERCL paper sit in the 30–45 % band on other datasets. A 40–55 % EEG-alone result at 350 epochs would be a good outcome; the thesis value is in *fusion gain*, not EEG-alone strength.
+- **Procedure**: re-run the 50-epoch sanity test with the train-mode fix before triggering the full 350-epoch Day-2 run. Only commit GPU to the full run when the sanity number visibly moves.
+- **Epoch budgets set to EAV-repo defaults**: AST audio 10 frozen + 15 fine-tune; ViT vision 10 frozen + 5 fine-tune; EEGNet 350 epochs.
+- **Test logits now saved per (subject, modality) to Drive** under `MyDrive/Thesis_EAV/checkpoints/day2_logits/sub{NN}_{modality}.npz`. Required by Day 3 (late fusion) and Day 4 (cross-attention fusion) so encoders never need to be re-run.
+- **Colab Pro: decided to purchase on Day 3.** Day 2 stays on Free for the first batch of subjects (~3 h on T4 is tolerable per session). From Day 3 onward, Pro for 24 h sessions, fewer disconnects, and occasional V100/A100.
+- **Day 2 driver script**: cell-paste version lives in the working notebook; reads/writes to `RESULTS / "day2_full.csv"` (append-mode, incremental), so a kernel kill mid-session preserves completed rows.
+- **Per-subject wall-clock estimate** (T4 Free, EAV defaults): audio ~45 min + vision ~25 min + EEG ~70 s ≈ **70–75 min/subject**. For 42 subjects this is ~50 GPU-hours, hence the Pro decision before broad rollout.
+
 ## Day 1 status (2026-05-19)
 - Created [paths.py](paths.py) with env-var-driven path config and [.gitignore](.gitignore) excluding data/checkpoints/pretrained.
 - Decided: no edits to EAV repo library files — all hard-coded paths live in `__main__` blocks only; our own driver passes paths.
@@ -129,7 +149,7 @@ Why this works:
 | **7** | Robustness + per-class analysis | Modality dropout (softhard); degraded-modality eval; confusion matrices; per-emotion F1 |
 | **8** | Subject-independent eval (stretch) | LOSO or 5-fold across subjects on the best model |
 | **9** | Writing — methods + results | Draft chapters: methods (figure + equations), experiments, results tables |
-| **10** | Polish + defense prep | Architecture diagram, final tables, limitations section, slide deck |
+| **10** | Polish + **emotion-overlay demo** + defense prep | Architecture diagram, final tables, limitations section, slide deck, `demo_inference.py`/`demo_overlay.py`, rendered demo MP4 |
 
 **MVP at Day 10 (if everything stretches):**
 - Trimodal cross-attention model on EAV with results for at least one fold/split.
@@ -172,6 +192,23 @@ pip install torch torchaudio torchvision transformers facenet-pytorch \
 - Audio emotion-to-index map is non-contiguous: `{Neutral:0, Sadness:1, Anger:2, Happiness:3, Calmness:4}` — same in vision; **must** match across modalities.
 - AST `feature_extractor` allocates large tensors — keep batch size ≤ 8 on T4.
 - Chumachenko's preprocessing scripts use hard-coded `/lustre/scratch/...` paths — ignore.
+
+## Methodology framing — Phase 1 vs Phase 2 (decided 2026-05-22)
+- **Phase 1 = this thesis.** Trimodal (A + V + E) clip-level emotion recognition trained and evaluated on EAV. Deliverable: a cross-attention fusion architecture that beats naïve late fusion on EAV per-subject and per-LOSO metrics, robust to missing EEG via modality-dropout training. Demo: sliding-window inference (5 s window, 1 s stride) on a personal video clip, with EEG zeroed and temporal smoothing applied post-hoc.
+- **Phase 2 = explicit future work, out of scope.** Per-second continuous emotion tracking on in-the-wild video. Requires: temporally-annotated in-the-wild dataset (DFEW / MAFW / custom); sequence-to-sequence temporal head (LSTM / Residual-TCN / temporal transformer) on top of frozen per-modality encoders; robust face detection, identity tracking, and cut detection in the visual preprocessor; voice activity detection and optional source separation in the audio preprocessor. None of these are part of the 10-day thesis.
+- **Architectural commitments to keep Phase 2 cheap to start.**
+  - The Day 4 cross-attention fusion module **must** expose per-modality pre-classifier embeddings as named outputs of `forward()`. A future temporal head reads these without any architectural rewrite.
+  - `forward(x_audio, x_visual, x_eeg=torch.zeros_like(...))` **must** be a valid call producing finite outputs. The Day 7 modality-dropout training step (per Chumachenko's `softhard` scheme) is what makes this true at the parameter level, and is a first-class design requirement rather than a robustness ablation.
+- **Defence framing.** The honest story is: "Phase 1 architecture validated on EAV under controlled conditions, with inference-time degradation to missing EEG demonstrated; closing the domain gap with a temporally-annotated in-the-wild dataset is Phase 2." Do not oversell what the EAV-trained model will do on movie input.
+
+## Demo plan (decided 2026-05-19)
+- **Form factor: file-based, not live.** Input is a recorded MP4; output is a copy of the same MP4 with a per-segment emotion-label overlay rendered on top. Live webcam/mic was evaluated and rejected — high engineering cost (rolling buffers, on-device MTCNN, M1 has no CUDA, audio/video sync) for negligible additional value over a recorded clip.
+- **EEG at demo time: zeros, with modality-dropout-trained fusion.** Demo machine has no EEG hardware. The Day-7 modality-dropout / softhard training step is therefore load-bearing for the demo — it teaches the fusion model to make sensible predictions when one modality is zeroed. At demo time the EEG branch receives a zero tensor of the correct shape and the model degrades gracefully. The overlay carries a small "EEG unavailable; prediction uses audio + video only" caption. **Do not** feed dummy EEG into a model trained without modality dropout — predictions become indefensible.
+- **Prediction granularity.** Model issues one prediction per 5-second window. Use overlapping windows at 1-second stride for smoother label transitions on screen (fallback: non-overlapping 5-second segments if time is short).
+- **Output rendering stack.** OpenCV (`cv2`) for frame-by-frame overlay; FFmpeg to re-attach the original audio (cv2.VideoWriter produces silent video). Optionally PIL for nicer text rendering. Overlay shows: coloured emotion pill (top-left), five-bar confidence row (bottom), timestamp (bottom-right).
+- **Time budget**: ~2 focused days of engineering total. Slotted into Day 10. Dependencies: fusion model (Day 5), modality dropout training (Day 7), thesis draft (Day 9).
+- **Minimum viable fallback** if Day 10 is tight: skip the overlay video; pick 3 EAV test clips, run prediction, render a static probability-bar image per clip. Defensible, finishable in 2–3 hours.
+- **Scripts to write**: `demo_inference.py` (video → list of (start_time, emotion, confidence)) and `demo_overlay.py` (renderer that consumes that list plus the original video).
 
 ## Reference papers (prioritized for this thesis)
 1. **Lee, Kim, Kim** — *Emotion Recognition Using EEG Signals and Audiovisual Features with Contrastive Learning*, Bioengineering 11(10) 997, 2024 — primary methodology.
