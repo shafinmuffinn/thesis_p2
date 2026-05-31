@@ -59,11 +59,15 @@ from fusion.feature_extractors import (
 # Config
 # ---------------------------------------------------------------------------
 
-SUBJECTS = [1, 2, 3]
+SUBJECTS = list(range(1, 43))   # all 42 EAV subjects
 
-# Per-modality training budgets (EAV defaults)
-AUD_EPOCHS_FROZEN, AUD_EPOCHS_FT = 10, 15
-VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 10, 5
+# Per-modality training budgets — reduced for the 42-subject rollout.
+# Justification: Day 2 showed AST overfits at epoch 5 of fine-tuning, so the
+# original 10+15 schedule wasted ~10 epochs per subject. ViT was pre-fine-tuned
+# on facial emotions and converges in 1-2 epochs. EEGNet needs the full 350.
+# At these budgets, ~12-15 min/subject on V100, ~20-25 min/subject on T4.
+AUD_EPOCHS_FROZEN, AUD_EPOCHS_FT = 5, 5
+VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 3, 2
 EEG_EPOCHS = 350
 
 # Fusion training

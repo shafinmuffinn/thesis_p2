@@ -50,6 +50,12 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - **Methodology simplification — Listen-vs-Speak analysis is dropped.** EAV's preprocessing pipeline did not preserve the per-trial task tag, and we don't have the raw data on hand to regenerate it. The headline coherence analysis is the **suppression matrix** instead — a 5×5 contingency table of (external AV emotion, internal EEG emotion) on trials where AV and EEG disagree and EEG is confident. This works on the current pickles without re-preprocessing. Behavioural validation via Listen-vs-Speak is recorded as Phase 2 future work.
 - **Tonight's deliverable** (running on Mac, no GPU): `suppression_matrix.py` produces the thesis's headline figure from the existing 3-subject `day2_logits/*.npz` files. Validates the methodology in advance of the 42-subject rollout.
 - **Trial alignment check (2026-05-31)**: per-class counts match across all three modalities for subjects 1–3 (80/80/80/80/80 each, total 400). Necessary condition for trial alignment met; treated as defensible to proceed without re-preprocessing.
+- **Suppression matrix preliminary findings (2026-05-31, 3-subject pilot)**:
+  - 360 test trials, 51% AV agreement, 9% suppression events (32 trials).
+  - Only **Calmness→Neutral** is robust across all 3 subjects (2/4/3 events each). All other matrix cells are driven by a single subject (Happiness→Sadness entirely from Sub 2; Sadness→Neutral entirely from Sub 3; Anger→Happiness mostly from Sub 1).
+  - **EEG-Neutral inflation confound**: EEG predicts Neutral on 40.6% of suppression events vs 27.8% of all trials (+12.8 pp). The Neutral column of the suppression matrix is partly model bias, partly real signal. Must be reported as a methodological caveat in the thesis.
+  - Headline scripts (`suppression_matrix.py`, `suppression_followup.py`) are reusable verbatim on the eventual 42-subject results.
+- **Tomorrow's first actions (2026-06-01)**: (a) verify how many subjects' pickles are actually on Drive (was assumed 3, may be more); (b) buy Colab Pro; (c) if pickles for all 42 are available, launch the 42-subject Stage A rollout. If not, decide whether to re-download raw EAV (~46 GB) from Zenodo or proceed with a smaller subset (e.g., 20 subjects).
 
 ## Day 4 status (2026-05-22)
 - **Compute pivot**: 4080 GPU (16 GB VRAM) now available for local training. Workflow is: develop and train locally on the workstation, keep Drive only for archival of Day-2 artefacts. Colab Pro becomes optional, not load-bearing.
