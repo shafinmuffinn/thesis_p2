@@ -43,6 +43,14 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - Per-subject training time at *paper-faithful* hyperparams (Day 2+): AST ~25 min + ViT ~60 min + EEGNet ~5 min ≈ **90 min/subject**. 42 subjects ≈ 63 h total — must spread across many sessions, save checkpoints aggressively to Drive.
 - Colab Pro ($10/mo) gives 24 h sessions + fewer disconnects + occasional V100/A100. **Recommended for the 10-day window.**
 
+## Restart status (2026-05-31)
+- **Project resumed** after a week-long break. New hard deadline: **2026-06-09**. Nine working days available.
+- **Raw EAV data not available locally** (user deleted it after pickle generation; only 3 subjects' pickles cached on Drive currently). Re-preprocessing all 42 subjects requires re-downloading ~46 GB from Zenodo, which is feasible but expensive.
+- **Compute**: no 4080 access tomorrow (2026-06-01). Plan is to buy Colab Pro for tomorrow's training and use 4080 later in the week when it becomes available. Pro on V100 is comparable to 4080; Pro on T4 is 2–3× slower.
+- **Methodology simplification — Listen-vs-Speak analysis is dropped.** EAV's preprocessing pipeline did not preserve the per-trial task tag, and we don't have the raw data on hand to regenerate it. The headline coherence analysis is the **suppression matrix** instead — a 5×5 contingency table of (external AV emotion, internal EEG emotion) on trials where AV and EEG disagree and EEG is confident. This works on the current pickles without re-preprocessing. Behavioural validation via Listen-vs-Speak is recorded as Phase 2 future work.
+- **Tonight's deliverable** (running on Mac, no GPU): `suppression_matrix.py` produces the thesis's headline figure from the existing 3-subject `day2_logits/*.npz` files. Validates the methodology in advance of the 42-subject rollout.
+- **Trial alignment check (2026-05-31)**: per-class counts match across all three modalities for subjects 1–3 (80/80/80/80/80 each, total 400). Necessary condition for trial alignment met; treated as defensible to proceed without re-preprocessing.
+
 ## Day 4 status (2026-05-22)
 - **Compute pivot**: 4080 GPU (16 GB VRAM) now available for local training. Workflow is: develop and train locally on the workstation, keep Drive only for archival of Day-2 artefacts. Colab Pro becomes optional, not load-bearing.
 - **`fusion/` module created** at the project root, separate from the EAV repo (which we did not fork into our contribution).
