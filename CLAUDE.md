@@ -7,7 +7,7 @@ This file is loaded into Claude's context every session in this directory. Keep 
 - **Deadline:** 10 days to tangible output (as of 2026-05-19).
 - **Dataset:** EAV (EEG-Audio-Video) — Lee et al. 2024, *Scientific Data*. 42 subjects, 30-channel EEG + audio + video, 5 emotions (Neutral, Anger, Happiness, Sadness, Calmness), 200 interactions/subject (listen/speak), pseudo-random cue-based conversation. Dataset hosted on [Zenodo (DOI 10.5281/zenodo.10205702)](https://doi.org/10.5281/zenodo.10205702).
 - **Compute:** Google Colab (T4 GPU confirmed in `personal_work.ipynb`); EAV pickles live at `/content/drive/MyDrive/Thesis_EAV/Input_images/{Audio,Vision,EEG}/subject_XX_*.pkl`.
-- **Local dev machine:** MacBook M1 Air — code-only, no local training (no CUDA). All experiments run on Colab.
+- **Local dev machine:** Windows PC (PyCharm) — see Workflow update (2026-06-01). All training runs on Colab Pro; PC is code-only unless the direct 4080 path is used.
 
 ## Workflow (Drive + GitHub hybrid, decided Day 1)
 - **Code** → private GitHub repo `thesis_p2`. Push from Mac, `git pull` (or fresh clone) in Colab each session via fine-grained PAT. Saves history, enables diffs, never lost.
@@ -47,7 +47,7 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - **Development machine transitioning from Mac to PC.** The Apple M1 MacBook Air (Visual Studio Code, no CUDA) was the primary dev box through end of May 2026; from 2026-06-01 onwards the user is working from a Windows PC using PyCharm. Same project, different filesystem and (potentially) different GitHub identity.
 - **GitHub access**: the PC uses a different GitHub account (collaborator on `shafinmuffinn/thesis_p2`, not the owner). Git commits are authored by the new identity; commit history retains `shafinmuffinn` authorship for everything pushed pre-2026-06-01. Both accounts can push to `main` and to feature branches.
 - **Drive access**: the PC uses a different Google account, also a collaborator on the shared Thesis_EAV folder. Drive Desktop on the PC mounts at a Windows drive letter (e.g., `G:\My Drive\Thesis_EAV\`); env vars in the PyCharm Run Configuration override `paths.py` defaults accordingly.
-- **Path differences**: paths.py auto-detects Colab vs non-Colab, but the local Windows default uses `/Users/shafin/Desktop/thesis_p2/` (a Mac-style fallback). When running on the PC, always set env vars via the PyCharm Run Configuration; never rely on the defaults.
+- **Path differences**: paths.py auto-detects Colab vs non-Colab, but the baked-in local default is still a Mac-style path (`/Users/shafin/Desktop/thesis_p2/`) — it is wrong on Windows. When running on the PC, **always** set env vars via the PyCharm Run Configuration (Run → Edit Configurations → Environment variables); never rely on the hardcoded defaults. Typical Windows values: `THESIS_ROOT=C:\Users\USER\p2 thesis\thesis_p2`, `EAV_PICKLES=G:\My Drive\Thesis_EAV\Input_images`, etc.
 - **Compute**: Colab Pro is the production GPU (L4 most of the time). The 4080 PC accessed via AnyDesk earlier in the project is no longer the primary compute path; the user has direct hardware now if needed, but the cached features make most analysis local-CPU work.
 
 ## Current status (2026-06-01)
@@ -199,10 +199,15 @@ Why this works:
 - **Residual-TCN** — Bai et al. 2018 (TCN paper) + Lee 2024 §3.1.2 (~1 h).
 
 ## Tools / libraries to install immediately
-```bash
-conda create -n eav python=3.10 -y && conda activate eav
-pip install torch torchaudio torchvision transformers facenet-pytorch \
-            librosa scipy scikit-learn opencv-python pandas numpy \
+```powershell
+# Run in Anaconda PowerShell Prompt (Windows)
+conda create -n eav python=3.10 -y
+conda activate eav
+# If using a CUDA GPU locally, replace the pip torch line with the appropriate
+# CUDA wheel from https://pytorch.org/get-started/locally/
+# (e.g. pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu121)
+pip install torch torchaudio torchvision transformers facenet-pytorch `
+            librosa scipy scikit-learn opencv-python pandas numpy `
             matplotlib seaborn tqdm mne wandb
 ```
 - Use **wandb** or tensorboard from Day 1; tracking is non-optional once experiments multiply.
@@ -233,7 +238,7 @@ pip install torch torchaudio torchvision transformers facenet-pytorch \
 - **Defence framing.** The honest story is: "Phase 1 architecture validated on EAV under controlled conditions, with inference-time degradation to missing EEG demonstrated; closing the domain gap with a temporally-annotated in-the-wild dataset is Phase 2." Do not oversell what the EAV-trained model will do on movie input.
 
 ## Demo plan (decided 2026-05-19)
-- **Form factor: file-based, not live.** Input is a recorded MP4; output is a copy of the same MP4 with a per-segment emotion-label overlay rendered on top. Live webcam/mic was evaluated and rejected — high engineering cost (rolling buffers, on-device MTCNN, M1 has no CUDA, audio/video sync) for negligible additional value over a recorded clip.
+- **Form factor: file-based, not live.** Input is a recorded MP4; output is a copy of the same MP4 with a per-segment emotion-label overlay rendered on top. Live webcam/mic was evaluated and rejected — high engineering cost (rolling buffers, on-device MTCNN, audio/video sync) for negligible additional value over a recorded clip. All inference for the demo runs on Colab or, if needed, the local 4080.
 - **EEG at demo time: zeros, with modality-dropout-trained fusion.** Demo machine has no EEG hardware. The Day-7 modality-dropout / softhard training step is therefore load-bearing for the demo — it teaches the fusion model to make sensible predictions when one modality is zeroed. At demo time the EEG branch receives a zero tensor of the correct shape and the model degrades gracefully. The overlay carries a small "EEG unavailable; prediction uses audio + video only" caption. **Do not** feed dummy EEG into a model trained without modality dropout — predictions become indefensible.
 - **Prediction granularity.** Model issues one prediction per 5-second window. Use overlapping windows at 1-second stride for smoother label transitions on screen (fallback: non-overlapping 5-second segments if time is short).
 - **Output rendering stack.** OpenCV (`cv2`) for frame-by-frame overlay; FFmpeg to re-attach the original audio (cv2.VideoWriter produces silent video). Optionally PIL for nicer text rendering. Overlay shows: coloured emotion pill (top-left), five-bar confidence row (bottom), timestamp (bottom-right).
