@@ -43,6 +43,23 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - Per-subject training time at *paper-faithful* hyperparams (Day 2+): AST ~25 min + ViT ~60 min + EEGNet ~5 min ≈ **90 min/subject**. 42 subjects ≈ 63 h total — must spread across many sessions, save checkpoints aggressively to Drive.
 - Colab Pro ($10/mo) gives 24 h sessions + fewer disconnects + occasional V100/A100. **Recommended for the 10-day window.**
 
+## Workflow update (2026-06-01)
+- **Development machine transitioning from Mac to PC.** The Apple M1 MacBook Air (Visual Studio Code, no CUDA) was the primary dev box through end of May 2026; from 2026-06-01 onwards the user is working from a Windows PC using PyCharm. Same project, different filesystem and (potentially) different GitHub identity.
+- **GitHub access**: the PC uses a different GitHub account (collaborator on `shafinmuffinn/thesis_p2`, not the owner). Git commits are authored by the new identity; commit history retains `shafinmuffinn` authorship for everything pushed pre-2026-06-01. Both accounts can push to `main` and to feature branches.
+- **Drive access**: the PC uses a different Google account, also a collaborator on the shared Thesis_EAV folder. Drive Desktop on the PC mounts at a Windows drive letter (e.g., `G:\My Drive\Thesis_EAV\`); env vars in the PyCharm Run Configuration override `paths.py` defaults accordingly.
+- **Path differences**: paths.py auto-detects Colab vs non-Colab, but the local Windows default uses `/Users/shafin/Desktop/thesis_p2/` (a Mac-style fallback). When running on the PC, always set env vars via the PyCharm Run Configuration; never rely on the defaults.
+- **Compute**: Colab Pro is the production GPU (L4 most of the time). The 4080 PC accessed via AnyDesk earlier in the project is no longer the primary compute path; the user has direct hardware now if needed, but the cached features make most analysis local-CPU work.
+
+## Current status (2026-06-01)
+- **42-subject Day-5 rollout completed.** Cross-attention fusion mean accuracy 0.802 (std 0.083) across all 42 subjects. Five subjects below 0.70 (sub08, 12, 14, 16, 40); two above 0.95 (sub20, 41).
+- **42-subject naïve late-fusion baseline**: mean 0.800 (mean-softmax variant). Cross-attention vs naïve = +0.2 pp, statistically tied. The −1.9 pp deficit observed on the 3-subject pilot was a small-sample artefact.
+- **Per-modality means at 42-subject scale**: audio 0.571, vision 0.746, EEG 0.439. All three exceed the EAV paper's published per-modality baselines (SCNN 36.7%, DeepFace 52.8%, EEGNet 36.7%) by substantial margins.
+- **Suppression matrix on 42 subjects**: 5040 trials produced 401 suppression events (8.0% base rate). Dominant patterns: Anger↔Happiness bidirectional (65+52=117 events), Sadness→Neutral (43), Calmness→Neutral (40). Per-subject decomposition confirms patterns are cross-population, not driven by outliers.
+- **EEG-Neutral inflation confound disappeared at scale.** 3-subject pilot showed +12.8 pp Neutral inflation on suppression-event trials; 42-subject result is −1.0 pp. The matrix is interpretable at face value without the bias caveat.
+- **Outputs on Drive**: `results/day5_fusion.csv` (42-subject cross-attention accuracies); `results/day3_late_fusion.csv` (42-subject naïve fusion comparison); `results/suppression_matrix.csv`, `suppression_per_trial.csv`, `suppression_per_subject.csv` (coherence analyses). Per-modality logits at `checkpoints/day5_per_modality_logits/sub{01..42}_{audio,vision,eeg}.npz`.
+- **Code added since 2026-05-31**: `suppression_matrix.py`, `suppression_followup.py`, `compute_per_modality_logits.py`. `suppression_matrix.py` and `day3_late_fusion.py` were patched to read from a configurable `LOGITS_SUBDIR` env var (default `day5_per_modality_logits`) so they work for both the 3-subject pilot and the full 42-subject dataset.
+- **Reports generated**: `thesis_progress_unified.docx` (Day 1 through current, single canonical document for sharing with thesis mates), plus separate Day 1, Day 2, Day 3-to-current, and master-plan documents kept as historical references.
+
 ## Restart status (2026-05-31)
 - **Project resumed** after a week-long break. New hard deadline: **2026-06-09**. Nine working days available.
 - **Raw EAV data not available locally** (user deleted it after pickle generation; only 3 subjects' pickles cached on Drive currently). Re-preprocessing all 42 subjects requires re-downloading ~46 GB from Zenodo, which is feasible but expensive.
