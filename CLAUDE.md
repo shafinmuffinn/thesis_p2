@@ -50,7 +50,18 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - **Path differences**: paths.py auto-detects Colab vs non-Colab, but the baked-in local default is still a Mac-style path (`/Users/shafin/Desktop/thesis_p2/`) — it is wrong on Windows. When running on the PC, **always** set env vars via the PyCharm Run Configuration (Run → Edit Configurations → Environment variables); never rely on the hardcoded defaults. Typical Windows values: `THESIS_ROOT=C:\Users\USER\p2 thesis\thesis_p2`, `EAV_PICKLES=G:\My Drive\Thesis_EAV\Input_images`, etc.
 - **Compute**: Colab Pro is the production GPU (L4 most of the time). The 4080 PC accessed via AnyDesk earlier in the project is no longer the primary compute path; the user has direct hardware now if needed, but the cached features make most analysis local-CPU work.
 
-## Current status (2026-06-01)
+## Current status (2026-06-02)
+- **Day 7 (softhard modality dropout) completed.** Re-trained TrimodalAttentionFusion on all 42 subjects with DROP_P=0.5. Full-modality mean 0.847 (std 0.079) — **+4.5 pp above Day 5 (0.802)**; dropout acts as a regulariser and improves generalisation beyond enabling the demo path. No subjects below 0.667 (sub16); six above 0.95 (sub04, 06, 17, 20, 27, 36).
+- **Demo-path (AV, EEG=0) accuracy**: mean 0.815 (std 0.088). Degradation vs full-modality: −3.2 pp. Fully defensible for the demo.
+- **Degraded-modality table (42-subject means)**: Full=0.847, AV=0.815, VE=0.797, AE=0.540. Audio+EEG without vision is the weakest two-modality pair; vision+EEG is almost as strong as all three.
+- **Per-class aggregate metrics (5040 trials)**: Happiness F1=0.898 (94% recall — most recognisable); Anger F1=0.878; Calmness F1=0.813; Sadness F1=0.837; Neutral F1=0.806 (lowest recall 78.3%, confused with Calmness in 14% of cases — expected for two low-arousal states). Macro-F1=0.846.
+- **Dominant confusion**: Neutral→Calmness (150/1008 = 14.9%) and Calmness→Neutral (74/1008 = 7.3%). This Neutral/Calmness confound is interpretable and worth discussing in the thesis (both are low-arousal, low-valence states).
+- **UserWarning in training output** (`enable_nested_tensor is True but use_nested_tensor is False because norm_first was True`): harmless PyTorch warning; suppress with `import warnings; warnings.filterwarnings("ignore")` at top of script if desired.
+- **Outputs on Drive**: `results/day7_fusion_dropout.csv`, `results/day7_confusion_matrix.csv`, `results/day7_per_class_metrics.csv`; fusion checkpoints at `checkpoints/day7_state_dicts/sub{01..42}_fusion.pt`; logits at `checkpoints/day7_fusion_logits/sub{01..42}.npz`.
+- **Code added 2026-06-02**: `day7_modality_dropout.py`, `day7_per_class_analysis.py`, `demo_inference.py`, `demo_overlay.py`.
+- **Demo scripts ready**: `demo_inference.py` (MP4 → predictions JSON, ensemble of all 42 Day-7 fusion heads, base pretrained AST+ViT, EEG=0) and `demo_overlay.py` (renders emotion pill + confidence bars + disclaimer + timestamp, re-attaches audio via FFmpeg).
+
+## Previous status (2026-06-01)
 - **42-subject Day-5 rollout completed.** Cross-attention fusion mean accuracy 0.802 (std 0.083) across all 42 subjects. Five subjects below 0.70 (sub08, 12, 14, 16, 40); two above 0.95 (sub20, 41).
 - **42-subject naïve late-fusion baseline**: mean 0.800 (mean-softmax variant). Cross-attention vs naïve = +0.2 pp, statistically tied. The −1.9 pp deficit observed on the 3-subject pilot was a small-sample artefact.
 - **Per-modality means at 42-subject scale**: audio 0.571, vision 0.746, EEG 0.439. All three exceed the EAV paper's published per-modality baselines (SCNN 36.7%, DeepFace 52.8%, EEGNet 36.7%) by substantial margins.
