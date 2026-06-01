@@ -29,6 +29,7 @@ Outputs:
 from __future__ import annotations
 
 import csv
+import os
 import sys
 from pathlib import Path
 
@@ -36,7 +37,10 @@ import numpy as np
 
 from paths import CHECKPOINTS, RESULTS
 
-LOGITS_DIR = CHECKPOINTS / "day2_logits"
+# Switch between the original 3-subject (day2_logits) and the 42-subject
+# (day5_per_modality_logits) datasets via env var.
+_LOGITS_SUBDIR = os.environ.get("LOGITS_SUBDIR", "day5_per_modality_logits")
+LOGITS_DIR = CHECKPOINTS / _LOGITS_SUBDIR
 OUT_MATRIX_CSV = RESULTS / "suppression_matrix.csv"
 OUT_TRIAL_CSV = RESULTS / "suppression_per_trial.csv"
 

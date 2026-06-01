@@ -17,6 +17,7 @@ Drive, sync them down to data/EAV/checkpoints/day2_logits/ first.
 from __future__ import annotations
 
 import csv
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +25,8 @@ import numpy as np
 
 from paths import CHECKPOINTS, RESULTS
 
-LOGIT_DIR = CHECKPOINTS / "day2_logits"
+_LOGITS_SUBDIR = os.environ.get("LOGITS_SUBDIR", "day5_per_modality_logits")
+LOGIT_DIR = CHECKPOINTS / _LOGITS_SUBDIR
 OUT_CSV = RESULTS / "day3_late_fusion.csv"
 PER_TRIAL_CSV = RESULTS / "day3_per_trial_coherence.csv"
 
