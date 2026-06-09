@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import csv
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -25,10 +24,16 @@ import torch.optim as optim
 
 # ---------------------------------------------------------------------------
 # Path config (auto-detect Colab vs local)
+#
+# NOTE: we cannot rely on `"google.colab" in sys.modules` here because this
+# script may be launched with `!python concat_mlp_baseline.py` from a Colab
+# cell, which spawns a fresh Python subprocess where google.colab is not
+# imported. We instead probe for the mounted Drive folder directly.
 # ---------------------------------------------------------------------------
-_IN_COLAB = "google.colab" in sys.modules
-if _IN_COLAB:
-    DRIVE_ROOT = Path("/content/drive/MyDrive/Thesis_EAV")
+DRIVE_ROOT = Path("/content/drive/MyDrive/Thesis_EAV")
+_ON_COLAB_DRIVE = DRIVE_ROOT.exists()
+
+if _ON_COLAB_DRIVE:
     CHECKPOINTS = Path(os.environ.get("CHECKPOINTS", DRIVE_ROOT / "checkpoints"))
     RESULTS = Path(os.environ.get("RESULTS", DRIVE_ROOT / "results"))
 else:
