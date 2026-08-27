@@ -40,3 +40,6 @@ venv/
 
 # Colab artifacts
 sample_data/
+
+# Overleaf export snapshot — redundant with the tracked LateX/ tree
+LateX.zip
