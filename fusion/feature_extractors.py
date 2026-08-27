@@ -58,9 +58,18 @@ class AudioFeatureExtractor:
         self.feat_dim = self.model.config.hidden_size  # 768 for AST-base
 
     @torch.no_grad()
-    def extract(self, raw_audio: np.ndarray, batch_size: int = 8) -> np.ndarray:
-        """raw_audio: (N, 80000) at 16 kHz → (N, 768)."""
-        feats = []
+    def extract(self, raw_audio: np.ndarray, batch_size: int = 8,
+                return_logits: bool = False):
+        """raw_audio: (N, 80000) at 16 kHz → (N, 768).
+
+        With return_logits=True, also returns the model's own (N, 5) class
+        logits, taken from the same forward pass. AST computes its logits from
+        `pooler_output` = mean of the CLS and distillation tokens, which is a
+        different pooling than the mean-over-all-tokens used for the fusion
+        feature -- so both are read off the one base-model call rather than
+        recomputing either.
+        """
+        feats, logits = [], []
         for i in range(0, len(raw_audio), batch_size):
             batch = list(raw_audio[i : i + batch_size])
             inputs = self.processor(
@@ -69,7 +78,13 @@ class AudioFeatureExtractor:
             out = self.model.audio_spectrogram_transformer(inputs)
             pooled = out.last_hidden_state.mean(dim=1)   # (B, 768)
             feats.append(pooled.cpu().numpy())
-        return np.concatenate(feats, axis=0).astype(np.float32)
+            if return_logits:
+                logits.append(self.model.classifier(out.pooler_output).cpu().numpy())
+
+        f = np.concatenate(feats, axis=0).astype(np.float32)
+        if not return_logits:
+            return f
+        return f, np.concatenate(logits, axis=0).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -102,25 +117,41 @@ class VisionFeatureExtractor:
         self.feat_dim = self.model.config.hidden_size  # 768 for ViT-base
 
     @torch.no_grad()
-    def extract(self, clips: np.ndarray, batch_size: int = 64) -> np.ndarray:
-        """clips: (N, 25, H, W, 3) uint8 → (N, 768). Mean-pools per-frame CLS."""
+    def extract(self, clips: np.ndarray, batch_size: int = 64,
+                return_logits: bool = False):
+        """clips: (N, 25, H, W, 3) uint8 → (N, 768). Mean-pools per-frame CLS.
+
+        With return_logits=True, also returns (N, 5) clip-level logits. ViT
+        classifies one frame at a time, so a clip-level logit is the mean of
+        its 25 per-frame logits -- classify-then-average, which matches how the
+        EAV vision trainer scores a clip. Note this is NOT the same as running
+        the classifier on the mean CLS vector; averaging is applied after the
+        head, not before it.
+        """
         N = len(clips)
         F = clips.shape[1]   # 25 frames per clip
 
         # Flatten clip × frame → one big batch of images.
         flat = [frame for clip in clips for frame in clip]
 
-        all_cls = []
+        all_cls, all_logits = [], []
         for i in range(0, len(flat), batch_size):
             batch = flat[i : i + batch_size]
             inputs = self.processor(images=batch, return_tensors="pt").pixel_values.to(self.device)
             out = self.model.vit(inputs)
             cls = out.last_hidden_state[:, 0]            # (B, 768)
             all_cls.append(cls.cpu().numpy())
+            if return_logits:
+                all_logits.append(self.model.classifier(cls).cpu().numpy())
 
         feats_per_frame = np.concatenate(all_cls, axis=0)            # (N*F, 768)
         feats_per_clip = feats_per_frame.reshape(N, F, -1).mean(axis=1)
-        return feats_per_clip.astype(np.float32)
+        f = feats_per_clip.astype(np.float32)
+        if not return_logits:
+            return f
+        logits_per_frame = np.concatenate(all_logits, axis=0)        # (N*F, 5)
+        logits_per_clip = logits_per_frame.reshape(N, F, -1).mean(axis=1)
+        return f, logits_per_clip.astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -153,12 +184,18 @@ class EEGFeatureExtractor:
         self.feat_dim = 64 * (500 // 4 // 8)
 
     @torch.no_grad()
-    def extract(self, eeg: np.ndarray, batch_size: int = 32) -> np.ndarray:
-        """eeg: (N, 30, 500) or (N, 1, 30, 500) → (N, 960)."""
+    def extract(self, eeg: np.ndarray, batch_size: int = 32,
+                return_logits: bool = False):
+        """eeg: (N, 30, 500) or (N, 1, 30, 500) → (N, 960).
+
+        With return_logits=True, also returns (N, 5) logits by continuing
+        through the dense head. The final softmax was removed from
+        EEGNet_tor.forward on Day 2, so `dense` emits raw logits.
+        """
         if eeg.ndim == 3:
             eeg = eeg[:, None, :, :]
 
-        feats = []
+        feats, logits = [], []
         m = self.model
         for i in range(0, len(eeg), batch_size):
             x = torch.from_numpy(eeg[i : i + batch_size]).float().to(self.device)
@@ -169,7 +206,13 @@ class EEGFeatureExtractor:
             x = m.separablePool(x)
             x = m.flatten(x)        # stop before dense
             feats.append(x.cpu().numpy())
-        return np.concatenate(feats, axis=0).astype(np.float32)
+            if return_logits:
+                logits.append(m.dense(x).cpu().numpy())
+
+        f = np.concatenate(feats, axis=0).astype(np.float32)
+        if not return_logits:
+            return f
+        return f, np.concatenate(logits, axis=0).astype(np.float32)
 
 
 if __name__ == "__main__":
