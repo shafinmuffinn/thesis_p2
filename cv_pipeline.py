@@ -106,13 +106,25 @@ DROP_P = 0.5
 # SUBJECT level so inner validation matches the outer protocol.
 INNER_VAL_SUBJECTS = 3
 
-# Vision RAM guard. Pooling every frame of ~33 subjects is 330k frames; at
-# 224x224 that is ~49 GB and will kill the process. The ViT trains per-frame,
-# so evenly-spaced subsampling costs little: even 4 frames/clip gives ~53k
-# training frames, 5x more than the per-subject model ever saw. Feature
-# extraction in Stage B always uses all 25 frames.
-VIS_TRAIN_RAM_BUDGET_GB = 6.0
-VIS_MAX_TRAIN_FRAMES = 60_000
+# Vision RAM guard.
+#
+# The binding constraint is NOT the raw uint8 frames -- it is what
+# ImageClassifierTrainer.preprocess_images holds. That method resizes every
+# frame to 224x224 float32 and keeps the entire result in one CPU tensor:
+#
+#     224 * 224 * 3 * 4 bytes = 602 KB per frame, ~64x the 9.4 KB raw frame
+#
+# Per-subject training was 7,000 frames = ~4 GB, which is the OOM documented
+# in Chapter 7. A fold is ~33 subjects; every frame would be 330k frames =
+# ~190 GB. So the budget below is applied to the PREPROCESSED size, and is
+# met by subsampling frames per clip (and, if still too large, clips per
+# subject). The ViT trains per-frame, so frames are near-interchangeable
+# training examples; Stage B extraction always uses all 25 frames.
+#
+# Raise this on a high-RAM runtime via --vis-budget-gb to train on more frames.
+PREPROC_FRAME_BYTES = 224 * 224 * 3 * 4
+VIS_PREPROC_BUDGET_GB = 8.0
+CLIPS_PER_SUBJECT = 400
 
 STATE_DIR = CHECKPOINTS / "cv5_state_dicts"
 FEAT_DIR = CHECKPOINTS / "cv5_features"
@@ -154,38 +166,48 @@ def _labels_1d(y: np.ndarray) -> np.ndarray:
     return y.argmax(axis=1) if y.ndim == 2 else y.astype(np.int64)
 
 
-def choose_frames_per_clip(n_clips: int, frame_nbytes: int) -> int:
-    """Pick how many frames per clip to keep for ViT training, RAM-bounded."""
-    budget_frames = int(VIS_TRAIN_RAM_BUDGET_GB * (1024 ** 3) / max(frame_nbytes, 1))
-    allowed = min(budget_frames, VIS_MAX_TRAIN_FRAMES)
-    return int(np.clip(allowed // max(n_clips, 1), 1, 25))
+def plan_vision_sampling(n_subjects: int, budget_gb: float,
+                         clips_per_subject: int = CLIPS_PER_SUBJECT
+                         ) -> tuple[int, int]:
+    """Choose (frames_per_clip, clips_per_subject) fitting the CPU RAM budget.
+
+    Budgets the PREPROCESSED tensor (224x224 float32), which is what actually
+    OOMs -- see the PREPROC_FRAME_BYTES note above. Returns a plan that must be
+    applied identically to the fit and inner-validation sets: the trainer reads
+    frame_per_sample off tr_x.shape[1] and applies it to both, so mismatched
+    frame counts desynchronise the validation labels.
+    """
+    max_frames = max(int(budget_gb * (1024 ** 3) / PREPROC_FRAME_BYTES), 1)
+    total_clips = max(n_subjects * clips_per_subject, 1)
+    frames_per_clip = int(np.clip(max_frames // total_clips, 1, 25))
+    keep_clips = int(np.clip((max_frames // frames_per_clip) // max(n_subjects, 1),
+                             1, clips_per_subject))
+    return frames_per_clip, keep_clips
 
 
 def pool_subjects(subs: list[int], modality: str,
-                  subsample_vision: bool = False) -> tuple[np.ndarray, np.ndarray]:
-    """Concatenate every trial from `subs` for one modality."""
-    xs, ys = [], []
-    frames_per_clip = None
+                  frames_per_clip: int | None = None,
+                  clips_per_subject: int | None = None
+                  ) -> tuple[np.ndarray, np.ndarray]:
+    """Concatenate every trial from `subs` for one modality.
 
+    Vision keeps its (n_clips, n_frames, H, W, 3) structure and per-CLIP
+    labels: ImageClassifierTrainer flattens clips into frames itself and
+    repeats the labels by frame_per_sample. Pre-flattening here makes it
+    iterate rows of a frame instead.
+    """
+    xs, ys = [], []
     for i, sub in enumerate(subs):
         x, y = load_all_trials(sub, modality)
+        y = _labels_1d(y)
 
-        if modality == "vision" and subsample_vision:
-            if frames_per_clip is None:
-                per_frame = int(np.asarray(x[0][0]).nbytes)
-                frames_per_clip = choose_frames_per_clip(len(subs) * len(x), per_frame)
-                total = len(subs) * len(x) * frames_per_clip
-                print(f"    [vision] RAM guard: keeping {frames_per_clip}/25 frames "
-                      f"per clip -> ~{total:,} training frames "
-                      f"(~{total * per_frame / 1024**3:.1f} GB)")
-            idx = np.linspace(0, x.shape[1] - 1, frames_per_clip).astype(int)
-            x = x[:, idx]
-            # Frame-level training: every frame is its own example.
-            n, f = x.shape[0], x.shape[1]
-            x = x.reshape(n * f, *x.shape[2:])
-            y = np.repeat(_labels_1d(y), f)
-        else:
-            y = _labels_1d(y)
+        if modality == "vision":
+            if clips_per_subject is not None and clips_per_subject < len(x):
+                keep = np.linspace(0, len(x) - 1, clips_per_subject).astype(int)
+                x, y = x[keep], y[keep]
+            if frames_per_clip is not None and frames_per_clip < x.shape[1]:
+                idx = np.linspace(0, x.shape[1] - 1, frames_per_clip).astype(int)
+                x = x[:, idx]
 
         xs.append(x)
         ys.append(y)
@@ -237,10 +259,21 @@ def train_fold_vision(fold: int, fit: list[int], val: list[int]) -> Path:
         return out
     from Transformer_torch.Transformer_Vision import ImageClassifierTrainer
 
+    # One sampling plan, applied to fit AND val: the trainer derives
+    # frame_per_sample from tr_x.shape[1] and reuses it for the val labels.
+    fpc, cps = plan_vision_sampling(len(fit), VIS_PREPROC_BUDGET_GB)
+    n_frames = len(fit) * cps * fpc
+    print(f"  [vision] RAM plan: {fpc}/25 frames per clip, {cps}/{CLIPS_PER_SUBJECT} "
+          f"clips per subject")
+    print(f"           -> {n_frames:,} training frames, "
+          f"~{n_frames * PREPROC_FRAME_BYTES / 1024**3:.1f} GB preprocessed "
+          f"(budget {VIS_PREPROC_BUDGET_GB:.1f} GB)")
+
     print(f"  [vision] pooling {len(fit)} fit + {len(val)} val subjects...")
-    tr_x, tr_y = pool_subjects(fit, "vision", subsample_vision=True)
-    va_x, va_y = pool_subjects(val, "vision", subsample_vision=True)
-    print(f"  [vision] training on {len(tr_x):,} frames...")
+    tr_x, tr_y = pool_subjects(fit, "vision", frames_per_clip=fpc, clips_per_subject=cps)
+    va_x, va_y = pool_subjects(val, "vision", frames_per_clip=fpc, clips_per_subject=cps)
+    print(f"  [vision] training on {len(tr_x):,} clips x {fpc} frames "
+          f"= {len(tr_x) * fpc:,} frames...")
 
     trainer = ImageClassifierTrainer(
         [tr_x, tr_y, va_x, va_y], model_path=HF_VISION_MODEL,
@@ -525,6 +558,8 @@ def summarise() -> None:
 
 
 def main() -> int:
+    global VIS_PREPROC_BUDGET_GB
+
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--folds", default=",".join(str(k) for k in range(N_FOLDS)),
@@ -532,8 +567,13 @@ def main() -> int:
     ap.add_argument("--stages", default="A,B,C", help="subset of A,B,C")
     ap.add_argument("--no-standardize", action="store_true",
                     help="skip per-fold feature standardization")
+    ap.add_argument("--vis-budget-gb", type=float, default=VIS_PREPROC_BUDGET_GB,
+                    help="CPU RAM budget for the preprocessed ViT training "
+                         "tensor (224x224 float32). Raise on a high-RAM runtime "
+                         "to train vision on more frames.")
     ap.add_argument("--summary-only", action="store_true")
     args = ap.parse_args()
+    VIS_PREPROC_BUDGET_GB = args.vis_budget_gb
 
     validate()
     if args.summary_only:

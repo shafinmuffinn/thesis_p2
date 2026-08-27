@@ -63,6 +63,62 @@ def test_folds_partition() -> None:
     print("OK: folds are a disjoint, exhaustive partition; each subject tested once")
 
 
+def test_vision_pooling() -> None:
+    """Vision pooling must hand the trainer clips, not pre-flattened frames.
+
+    Regression test for the Stage A crash: ImageClassifierTrainer flattens
+    clips into frames itself (`for clip in image_list for img in clip`) and
+    derives frame_per_sample from tr_x.shape[1]. Pre-flattening made it iterate
+    rows of a frame, and giving fit/val different frame counts desynchronised
+    the validation labels.
+    """
+    H = W = 56
+    CLIPS, FRAMES = 400, 25
+
+    def fake_load(sub, modality):
+        rng = np.random.default_rng(sub)
+        x = rng.integers(0, 255, (CLIPS, FRAMES, H, W, 3), dtype=np.uint8)
+        return x, rng.integers(0, cv.N_CLASSES, CLIPS)
+
+    original, cv.load_all_trials = cv.load_all_trials, fake_load
+    try:
+        fit, val = [1, 2, 3, 4], [5, 6]
+        fpc, cps = cv.plan_vision_sampling(len(fit), budget_gb=1.0)
+
+        budget_frames = int(1.0 * 1024 ** 3 / cv.PREPROC_FRAME_BYTES)
+        assert 1 <= fpc <= FRAMES and 1 <= cps <= CLIPS
+        assert len(fit) * cps * fpc <= budget_frames, "plan exceeds its RAM budget"
+
+        tr_x, tr_y = cv.pool_subjects(fit, "vision", frames_per_clip=fpc,
+                                      clips_per_subject=cps)
+        va_x, va_y = cv.pool_subjects(val, "vision", frames_per_clip=fpc,
+                                      clips_per_subject=cps)
+
+        # Clip structure preserved, labels per clip (not per frame).
+        assert tr_x.shape == (len(fit) * cps, fpc, H, W, 3), f"bad shape {tr_x.shape}"
+        assert tr_y.shape == (len(fit) * cps,), f"bad label shape {tr_y.shape}"
+
+        # The trainer reads frame_per_sample off tr_x and applies it to BOTH
+        # splits, so val must carry the same frames per clip.
+        assert tr_x.shape[1] == va_x.shape[1], "fit/val frames-per-clip mismatch"
+
+        # Simulate the trainer exactly.
+        frame_per_sample = np.shape(tr_x)[1]
+        flat = [img for clip in tr_x for img in clip]
+        assert len(flat) == len(tr_x) * frame_per_sample
+        assert all(im.shape == (H, W, 3) for im in flat), \
+            "flattening did not yield (H, W, 3) images"
+        assert len(np.repeat(tr_y, frame_per_sample)) == len(flat), \
+            "labels and frames desynchronised"
+        assert len(np.repeat(va_y, frame_per_sample)) == len(va_x) * frame_per_sample, \
+            "validation labels desynchronised"
+
+        print(f"OK: vision pooling -> {tr_x.shape} clips, {fpc} frames/clip, "
+              f"{cps} clips/subject; trainer flattening and labels align")
+    finally:
+        cv.load_all_trials = original
+
+
 def test_stage_c() -> None:
     tmp = Path(tempfile.mkdtemp())
     cv.FEAT_DIR = tmp / "feat"
@@ -109,6 +165,7 @@ def test_stage_c() -> None:
 
 if __name__ == "__main__":
     test_folds_partition()
+    test_vision_pooling()
     test_stage_c()
     print("\nAll CV pipeline smoke tests PASSED")
     sys.exit(0)
