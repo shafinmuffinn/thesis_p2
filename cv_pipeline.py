@@ -101,8 +101,11 @@ VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 1, 1
 # training loss kept falling. Rather than tune the count to one noisy reading,
 # EEG_EPOCHS is now an UPPER BOUND and the best inner-validation epoch is kept
 # (see _train_eegnet_with_selection). Patience stops the run once inner-val
-# has not improved for EEG_PATIENCE epochs.
-EEG_EPOCHS = 120
+# has not improved for EEG_PATIENCE epochs. The cap is 150 because the
+# observed peak sits near epoch 90 (acc 0.3942) with a noisy, non-monotonic
+# curve -- 60 (0.3833) and 200 (0.3567) both sit below it, so no fixed count
+# is reliable and the cap only needs enough headroom past the peak.
+EEG_EPOCHS = 150
 EEG_PATIENCE = 25
 
 # Fusion head budgets.
@@ -702,6 +705,30 @@ def summarise() -> None:
         print(f"\n  NOTE: {n}/{len(SUBJECTS)} subjects done -- partial run.")
 
 
+def _code_version() -> str:
+    """Short git SHA of the running code, plus a dirty flag.
+
+    Printed at startup because this pipeline is authored locally and executed
+    in a remote runtime that pulls from GitHub. A fix that is committed but not
+    pushed, or pushed but not pulled, reproduces the original failure exactly
+    -- which has cost real GPU time. Comparing this line against `git log -1`
+    locally answers "am I running the fix?" without reading log formats.
+    """
+    import subprocess
+    root = Path(__file__).resolve().parent
+    try:
+        sha = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+        if sha.returncode != 0:
+            return "unknown (not a git checkout)"
+        dirty = subprocess.run(["git", "-C", str(root), "status", "--porcelain"],
+                               capture_output=True, text=True, timeout=10)
+        flag = " +local-changes" if dirty.stdout.strip() else ""
+        return sha.stdout.strip() + flag
+    except Exception:
+        return "unknown"
+
+
 def main() -> int:
     global VIS_PREPROC_BUDGET_GB
 
@@ -728,6 +755,7 @@ def main() -> int:
     folds = [int(x) for x in args.folds.split(",") if x.strip() != ""]
     stages = {s.strip().upper() for s in args.stages.split(",")}
 
+    print(f"code version: {_code_version()}")
     print(f"device={DEVICE}  folds={folds}  stages={sorted(stages)}")
     print(f"standardize={not args.no_standardize}")
     if DEVICE == "cpu" and stages & {"A", "B"}:
