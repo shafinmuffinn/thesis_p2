@@ -95,7 +95,13 @@ FEAT_DIMS = {"audio": 768, "vision": 768, "eeg": 960}
 # --folds 0 first and check the inner-validation curves before committing all
 # five folds to a queue.
 AUD_EPOCHS_FROZEN, AUD_EPOCHS_FT = 2, 2
-VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 1, 1
+# Raised from 1+1 after fold 0 put vision at 0.4583 cross-subject against
+# 0.746 within-subject, while audio held at 0.5697 vs 0.571. At 1+1 -- one
+# head-only epoch then one backbone epoch at lr=5e-6 -- the ViT is close to a
+# frozen-backbone linear probe, so underfitting is a live alternative to
+# "facial features do not transfer". Only the epoch counts change; the
+# learning rates stay as in P2 so any improvement is attributable.
+VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 3, 2
 # EEGNet overfits well before these budgets at fold scale: at 60 epochs
 # inner-val was loss 1.4469 / acc 0.3833, at 200 it was 1.6389 / 0.3567 while
 # training loss kept falling. Rather than tune the count to one noisy reading,
@@ -265,6 +271,55 @@ def train_fold_audio(fold: int, fit: list[int], val: list[int]) -> Path:
     return out
 
 
+@torch.no_grad()
+def _eval_vision_trainer(trainer) -> float:
+    """Inner-validation accuracy of a vision trainer's current weights.
+
+    ImageClassifierTrainer computes this internally each epoch but neither
+    returns it nor keeps the best state, so train() leaves whatever the final
+    epoch produced. Recomputed here so the epoch loop can select.
+    """
+    model = trainer.model
+    model.eval()
+    correct = total = 0
+    for batch in trainer.test_dataloader:
+        px, y = [b.to(trainer.device) for b in batch]
+        out = model(px)
+        logits = out.logits if hasattr(out, "logits") else out
+        correct += (logits.argmax(dim=-1) == y).sum().item()
+        total += y.numel()
+    return correct / max(total, 1)
+
+
+def _train_vision_with_selection(trainer, phases: list[tuple[int, float, bool]]) -> dict:
+    """Run the trainer one epoch at a time, keeping the best inner-val weights.
+
+    `phases` is [(n_epochs, lr, freeze), ...]. Calling train(epochs=1, ...)
+    repeatedly is equivalent to one multi-epoch call -- the optimizer lives on
+    the trainer, and each call just re-applies the lr and freeze flags -- but it
+    hands us the epoch boundary, which is where selection has to happen.
+
+    Returns the best state dict (already unwrapped from DataParallel).
+    """
+    best_acc, best_where = -1.0, None
+    best_state = None
+    for phase_i, (n_epochs, lr, freeze) in enumerate(phases):
+        tag = "frozen" if freeze else "finetune"
+        for e in range(n_epochs):
+            trainer.train(epochs=1, lr=lr, freeze=freeze)
+            acc = _eval_vision_trainer(trainer)
+            where = f"{tag} {e + 1}/{n_epochs}"
+            marker = ""
+            if acc > best_acc:
+                best_acc, best_where = acc, where
+                best_state = {k: v.detach().clone()
+                              for k, v in _unwrap(trainer.model).items()}
+                marker = "  <- best"
+            print(f"  [vision] {where}: inner-val acc {acc:.4f}{marker}", flush=True)
+    print(f"  [vision] selected {best_where} (inner-val acc {best_acc:.4f})")
+    return best_state
+
+
 def train_fold_vision(fold: int, fit: list[int], val: list[int]) -> Path:
     out = STATE_DIR / f"fold{fold}_vision.pt"
     if out.exists():
@@ -292,9 +347,11 @@ def train_fold_vision(fold: int, fit: list[int], val: list[int]) -> Path:
         [tr_x, tr_y, va_x, va_y], model_path=HF_VISION_MODEL,
         sub=f"fold{fold}", num_labels=N_CLASSES, lr=5e-5, batch_size=32,
     )
-    trainer.train(epochs=VIS_EPOCHS_FROZEN, lr=5e-4, freeze=True)
-    trainer.train(epochs=VIS_EPOCHS_FT, lr=5e-6, freeze=False)
-    torch.save(_unwrap(trainer.model), out)
+    best_state = _train_vision_with_selection(trainer, [
+        (VIS_EPOCHS_FROZEN, 5e-4, True),
+        (VIS_EPOCHS_FT, 5e-6, False),
+    ])
+    torch.save(best_state, out)
     print(f"  [vision] saved {out.name}")
     return out
 
