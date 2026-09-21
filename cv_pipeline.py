@@ -299,16 +299,31 @@ def _train_vision_with_selection(trainer, phases: list[tuple[int, float, bool]])
     the trainer, and each call just re-applies the lr and freeze flags -- but it
     hands us the epoch boundary, which is where selection has to happen.
 
+    Selection ranges over FINE-TUNE epochs only. The frozen phase trains just
+    the re-initialised classifier head on a fixed backbone, so a model from it
+    is a linear probe -- a different architecture from the one under
+    evaluation, not merely an earlier epoch of it. Letting it compete is what
+    made fold 0 save a frozen-backbone encoder whose inner-validation accuracy
+    beat the fine-tuned one by 0.25 pp (inside the ~0.8 pp noise floor of a
+    3,600-frame validation set) while scoring 10 pp worse on held-out subjects.
+
     Returns the best state dict (already unwrapped from DataParallel).
     """
     best_acc, best_where = -1.0, None
     best_state = None
-    for phase_i, (n_epochs, lr, freeze) in enumerate(phases):
+    for n_epochs, lr, freeze in phases:
         tag = "frozen" if freeze else "finetune"
         for e in range(n_epochs):
             trainer.train(epochs=1, lr=lr, freeze=freeze)
             acc = _eval_vision_trainer(trainer)
             where = f"{tag} {e + 1}/{n_epochs}"
+
+            if freeze:
+                # Warmup: reported for visibility, never selectable.
+                print(f"  [vision] {where}: inner-val acc {acc:.4f}  (warmup)",
+                      flush=True)
+                continue
+
             marker = ""
             if acc > best_acc:
                 best_acc, best_where = acc, where
@@ -316,6 +331,11 @@ def _train_vision_with_selection(trainer, phases: list[tuple[int, float, bool]])
                               for k, v in _unwrap(trainer.model).items()}
                 marker = "  <- best"
             print(f"  [vision] {where}: inner-val acc {acc:.4f}{marker}", flush=True)
+
+    if best_state is None:
+        # No fine-tune phase ran; fall back to the current weights.
+        best_state = {k: v.detach().clone() for k, v in _unwrap(trainer.model).items()}
+        best_where, best_acc = "final (no fine-tune phase)", _eval_vision_trainer(trainer)
     print(f"  [vision] selected {best_where} (inner-val acc {best_acc:.4f})")
     return best_state
 
