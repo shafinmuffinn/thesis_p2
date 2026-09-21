@@ -93,7 +93,11 @@ FEAT_DIMS = {"audio": 768, "vision": 768, "eeg": 960}
 # five folds to a queue.
 AUD_EPOCHS_FROZEN, AUD_EPOCHS_FT = 2, 2
 VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 1, 1
-EEG_EPOCHS = 60
+# Raised from 60 after the fold-0 calibration run: inner-validation accuracy
+# was still climbing (0.3758 -> 0.3833) and val loss still falling at the last
+# epoch, i.e. undertrained. EEGNet is small (375 steps/epoch at fold scale),
+# so the extra epochs are cheap insurance on the weakest modality.
+EEG_EPOCHS = 200
 
 # Fusion head budgets.
 FUSION_EPOCHS = 40
@@ -426,13 +430,32 @@ def to_tensors(feats: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
 
 
 def train_fusion_head(model: nn.Module, train_x: dict, train_y: torch.Tensor,
+                      val_x: dict, val_y: torch.Tensor,
                       use_dropout: bool) -> nn.Module:
-    """Train one fusion head. No test-fold signal is used anywhere here."""
+    """Train one fusion head, selecting the best epoch on inner-validation.
+
+    The validation subjects are the same ones Stage A held out of encoder
+    training, so their features were produced by encoders that never saw them
+    -- exactly how the test fold's features are produced. Validating on the
+    fit subjects instead would be optimistically biased, because their
+    features come from encoders trained on them.
+
+    Without this selection the head simply ran FUSION_EPOCHS to completion and
+    drove training loss to ~0. Cross-subject, that overfits the training
+    subjects' feature geometry and penalises every trained variant relative to
+    parameter-free late fusion, which has nothing to overfit.
+
+    Validation is always full-modality, even for the dropout variant: dropout
+    is a training-time regulariser, not part of the selection criterion.
+    """
     model = model.to(DEVICE)
     opt = optim.AdamW(model.parameters(), lr=FUSION_LR, weight_decay=FUSION_WD)
     sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=FUSION_EPOCHS)
     crit = nn.CrossEntropyLoss()
     n = train_y.size(0)
+
+    best_acc, best_epoch = -1.0, -1
+    best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
 
     for epoch in range(FUSION_EPOCHS):
         model.train()
@@ -450,20 +473,35 @@ def train_fusion_head(model: nn.Module, train_x: dict, train_y: torch.Tensor,
             opt.step()
             total += loss.item() * len(idx)
         sched.step()
+
+        val_acc, _, _ = eval_mode(model, val_x, val_y, False, False, False)
+        if val_acc > best_acc:
+            best_acc, best_epoch = val_acc, epoch + 1
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
         if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(f"      epoch {epoch + 1:3d}/{FUSION_EPOCHS}  loss={total / n:.4f}")
+            print(f"      epoch {epoch + 1:3d}/{FUSION_EPOCHS}  "
+                  f"loss={total / n:.4f}  val={val_acc:.4f}")
+
+    model.load_state_dict(best_state)
+    print(f"      selected epoch {best_epoch}/{FUSION_EPOCHS} "
+          f"(inner-val acc {best_acc:.4f})")
     return model
 
 
 def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
     print(f"\n--- Stage C: fold {fold} fusion variants ---")
     tr_subs, te_subs = train_subjects(fold), test_subjects(fold)
+    fit_subs, val_subs = _inner_split(tr_subs)
     train = load_fold_features(fold, tr_subs)
     test = load_fold_features(fold, te_subs)
+    print(f"  fit   {len(fit_subs)} subjects   inner-val {len(val_subs)} {val_subs}")
     print(f"  train {len(train['y']):,} trials / {len(tr_subs)} subjects")
     print(f"  test  {len(test['y']):,} trials / {len(te_subs)} subjects")
 
     if standardize:
+        # Statistics come from the whole training fold -- standardisation is
+        # preprocessing, not model selection, and the test fold is untouched.
         stats = fit_standardizer(train)
         train_f, test_f = apply_standardizer(train, stats), apply_standardizer(test, stats)
         print("  features standardized (statistics fitted on train subjects only)")
@@ -471,9 +509,19 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
         train_f = {m: train[m] for m in MODALITIES}
         test_f = {m: test[m] for m in MODALITIES}
 
-    train_x, test_x = to_tensors(train_f), to_tensors(test_f)
-    train_y = torch.from_numpy(train["y"]).long().to(DEVICE)
+    train_all, test_x = to_tensors(train_f), to_tensors(test_f)
+    train_all_y = torch.from_numpy(train["y"]).long().to(DEVICE)
     test_y = torch.from_numpy(test["y"]).long().to(DEVICE)
+
+    # Split the training fold into fit / inner-validation by SUBJECT, matching
+    # the Stage A split so validation features come from encoders that never
+    # saw those subjects.
+    fit_m = torch.from_numpy(np.isin(train["subject"], fit_subs)).to(DEVICE)
+    val_m = torch.from_numpy(np.isin(train["subject"], val_subs)).to(DEVICE)
+    fit_x = {m: train_all[m][fit_m] for m in MODALITIES}
+    val_x = {m: train_all[m][val_m] for m in MODALITIES}
+    fit_y, val_y = train_all_y[fit_m], train_all_y[val_m]
+    print(f"        -> fit {fit_y.numel():,} trials, inner-val {val_y.numel():,} trials")
 
     def record(variant: str, preds: np.ndarray) -> None:
         for sub in te_subs:
@@ -486,6 +534,12 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
         acc = float((preds == test["y"]).mean())
         print(f"    {variant:14s} pooled acc = {acc:.4f}")
 
+    # --- Per-modality baselines (no training; the encoders' own heads) ---
+    # Cross-subject answer to RQ1, and the diagnostic for which modality is
+    # carrying the fusion result. Free: the logits are already cached.
+    for m in MODALITIES:
+        record(f"{m}_only", test[f"logits_{m}"].argmax(axis=-1))
+
     # --- V1: naive late fusion (no training) ---
     probs = np.stack([softmax_np(test[f"logits_{m}"]) for m in MODALITIES])
     record("naive_late", probs.mean(axis=0).argmax(axis=-1))
@@ -496,19 +550,22 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
     # --- V2: cross-attention ---
     print("    training cross_attn...")
     torch.manual_seed(SEED)
-    m2 = train_fusion_head(TrimodalAttentionFusion(**dims), train_x, train_y, False)
+    m2 = train_fusion_head(TrimodalAttentionFusion(**dims), fit_x, fit_y,
+                           val_x, val_y, False)
     record("cross_attn", eval_mode(m2, test_x, test_y, False, False, False)[1])
 
     # --- V3: concat-MLP ---
     print("    training concat_mlp...")
     torch.manual_seed(SEED)
-    m3 = train_fusion_head(ConcatMLPWrapped(**dims), train_x, train_y, False)
+    m3 = train_fusion_head(ConcatMLPWrapped(**dims), fit_x, fit_y,
+                           val_x, val_y, False)
     record("concat_mlp", eval_mode(m3, test_x, test_y, False, False, False)[1])
 
     # --- V4/V5: softhard modality dropout, evaluated full and EEG-zeroed ---
     print("    training dropout (softhard)...")
     torch.manual_seed(SEED)
-    m4 = train_fusion_head(TrimodalAttentionFusion(**dims), train_x, train_y, True)
+    m4 = train_fusion_head(TrimodalAttentionFusion(**dims), fit_x, fit_y,
+                           val_x, val_y, True)
     record("dropout_full", eval_mode(m4, test_x, test_y, False, False, False)[1])
     record("dropout_av", eval_mode(m4, test_x, test_y, False, False, True)[1])
 
@@ -542,8 +599,21 @@ def summarise() -> None:
         return
     with open(RESULTS_CSV) as f:
         rows = list(csv.DictReader(f))
-    by: dict[str, list[float]] = {}
+
+    # The CSV is append-only, so re-running a fold leaves the superseded rows
+    # behind. Keep the most recent row per (fold, subject, variant) and say so
+    # -- silently averaging both protocols together would be a wrong number
+    # that looks perfectly plausible.
+    latest: dict[tuple, dict] = {}
     for r in rows:
+        latest[(r["fold"], r["subject"], r["variant"])] = r
+    n_superseded = len(rows) - len(latest)
+    if n_superseded:
+        print(f"\nNOTE: {n_superseded} superseded row(s) ignored "
+              f"(re-run folds); using the most recent per subject/variant.")
+
+    by: dict[str, list[float]] = {}
+    for r in latest.values():
         by.setdefault(r["variant"], []).append(float(r["test_acc"]))
 
     print("\n" + "=" * 64)

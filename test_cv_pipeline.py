@@ -20,7 +20,9 @@ from cv_split import make_folds, test_subjects, train_subjects, validate
 
 N_TRIALS = 40          # per subject; the real run has 400
 FOLD = 0
-VARIANTS = {"naive_late", "cross_attn", "concat_mlp", "dropout_full", "dropout_av"}
+TRAINED = {"cross_attn", "concat_mlp", "dropout_full"}
+VARIANTS = ({"audio_only", "vision_only", "eeg_only", "naive_late", "dropout_av"}
+            | TRAINED)
 
 
 def build_fake_caches(feat_dir: Path, seed: int = 0) -> None:
@@ -151,11 +153,17 @@ def test_stage_c() -> None:
     cv.append_rows(rows)
     assert cv.RESULTS_CSV.exists()
 
-    learned = [r["test_acc"] for r in rows
-               if r["variant"] in {"cross_attn", "concat_mlp", "dropout_full"}]
+    learned = [r["test_acc"] for r in rows if r["variant"] in TRAINED]
     mean_learned = float(np.mean(learned))
     assert mean_learned > 0.50, \
         f"learned heads at {mean_learned:.3f} -- cross-subject signal not learned"
+
+    # Inner-validation selection must not have touched the held-out fold: the
+    # fit/val subjects both have to come from the training fold.
+    fit_subs, val_subs = cv._inner_split(train_subjects(FOLD))
+    assert not (set(val_subs) & set(te)), "inner-val subjects leak into test fold"
+    assert not (set(fit_subs) & set(te)), "fit subjects leak into test fold"
+    assert not (set(fit_subs) & set(val_subs)), "fit and inner-val overlap"
 
     print(f"OK: {len(rows)} rows = {len(VARIANTS)} variants x {len(te)} held-out subjects")
     print("OK: train/test subjects disjoint; saved logits cover exactly the test fold")
