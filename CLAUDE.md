@@ -4,7 +4,7 @@ This file is loaded into Claude's context every session in this directory. Keep 
 
 ## Student & thesis
 - **Topic:** Trimodal emotion detection — audio + video + EEG.
-- **Deadline:** 10 days to tangible output (as of 2026-05-19).
+- **Deadline:** P2 submitted 2026-06-13. P3 (Final Defence) in progress — see P3 status below.
 - **Dataset:** EAV (EEG-Audio-Video) — Lee et al. 2024, *Scientific Data*. 42 subjects, 30-channel EEG + audio + video, 5 emotions (Neutral, Anger, Happiness, Sadness, Calmness), 200 interactions/subject (listen/speak), pseudo-random cue-based conversation. Dataset hosted on [Zenodo (DOI 10.5281/zenodo.10205702)](https://doi.org/10.5281/zenodo.10205702).
 - **Compute:** Google Colab (T4 GPU confirmed in `personal_work.ipynb`); EAV pickles live at `/content/drive/MyDrive/Thesis_EAV/Input_images/{Audio,Vision,EEG}/subject_XX_*.pkl`.
 - **Local dev machine:** MacBook M1 Air — code-only, no local training (no CUDA). All experiments run on Colab.
@@ -42,6 +42,35 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 - Free tier: ~12 h max session, disconnect after ~90 min idle, T4 (16 GB). Workable but fragile.
 - Per-subject training time at *paper-faithful* hyperparams (Day 2+): AST ~25 min + ViT ~60 min + EEGNet ~5 min ≈ **90 min/subject**. 42 subjects ≈ 63 h total — must spread across many sessions, save checkpoints aggressively to Drive.
 - Colab Pro ($10/mo) gives 24 h sessions + fewer disconnects + occasional V100/A100. **Recommended for the 10-day window.**
+
+## P3 status (2026-09-21) — Final Defence phase
+
+- **P2 submitted 2026-06-13.** Full 8-chapter LaTeX thesis in [LateX/](LateX/), ~22.4k words, compiles clean (`python verify_latex.py`). P3 resumed 2026-08-27 after a gap spent on another paper. Defence window ~45 days from 2026-08-27; team of 3 with GPU access.
+- **Working log doc** (decisions, bugs, reasoning for report writing): https://claude.ai/code/artifact/d122e14a-0cc5-42e2-993b-bdd72ed53096
+- **EEG device was cancelled (budget).** Does NOT break the thesis: EEG comes from EAV, not our own recording. Chapter 8 already documented primary EEG as conditional on instrumentation and specified the Likert self-report fallback. Cheap consumer headsets (Muse/Ganglion, 4ch) rejected — do not transfer to EAV's 30-channel EEGNet.
+- **P3 scope = compute-only deepening**, three tracks: **A** 5-fold subject-wise CV (retires Limitation 2), **B** sequence features + true 6-way CMA (retires Limitation 3), **C** MERCL contrastive pre-training (restores the original novelty claim). Only Track A has started.
+
+### Track A — cross-subject CV
+- Files: [cv_split.py](cv_split.py) (deterministic 9/9/8/8/8 partition), [cv_pipeline.py](cv_pipeline.py) (Stages A/B/C, resumable, `--folds` splits work across GPUs), [test_cv_pipeline.py](test_cv_pipeline.py) (CPU smoke tests, no data needed).
+- **LEAKAGE RULE — do not violate:** `day5_state_dicts/` and `day5_features/` CANNOT be reused for anything cross-subject. Each encoder was fine-tuned on its own subject, so a cached feature for a held-out subject came from a model that already saw it. Stage A retrains all three encoders per fold on training subjects only. This is the entire cost of Track A.
+- Inner validation = 3 subjects carved from the training fold, at the **subject** level. Used for both encoder best-epoch checkpointing and (since 2026-09-21) fusion-head model selection. Never validate on the test fold — the EAV trainers checkpoint on it.
+- Scored variants: `audio_only`, `vision_only`, `eeg_only`, `naive_late`, `cross_attn`, `concat_mlp`, `dropout_full`, `dropout_av`. Output `RESULTS/cv5_fusion.csv`.
+- **Fold 0 (provisional, 9 subjects):** naive_late 0.641, concat_mlp 0.580, dropout_full 0.576, cross_attn 0.570, dropout_av 0.563. All far above chance (0.20) — protocol works. ~23 pp below the within-subject numbers; per-subject std (0.078) matches P2's 0.083.
+- **Ranking inverted vs P2** — naive late fusion now beats every trained head (p=0.004–0.055). CONFOUNDED: those heads ran a fixed 40 epochs with no model selection, which penalises trained variants only. Model selection added 2026-09-21; fold 0 re-running. Do not write this up until re-scored.
+- `dropout_full` → `dropout_av` only −1.4 pp cross-subject (vs −3.2 pp within-subject) — the zero-EEG demo path survives. Answers RQ5.
+- EEGNet inner-val hit 0.383 and was still climbing at epoch 60 → `EEG_EPOCHS` raised 60 → 200. EEG appears to lose the least cross-subject (~6 pp), so the big penalty is on vision and the fusion heads.
+
+### P3 gotchas (hard-won)
+- **`ImageClassifierTrainer` wants CLIPS, not frames.** It flattens clips→frames itself and reads `frame_per_sample` from `tr_x.shape[1]`. Pre-flattening makes it iterate rows of a frame → `ValueError: Could not make a flat list of images`. Fit and val must get the SAME frames-per-clip or val labels desync.
+- **Vision RAM is bound by the PREPROCESSED tensor**, not raw frames: `preprocess_images` resizes to 224×224 float32 = 602 KB/frame, 64× the raw 9.4 KB. Budget with `--vis-budget-gb` (24 GB ⇒ 3 frames/clip, 36k frames). Extraction always uses all 25 frames.
+- **Push before re-running in Colab.** A crash that reproduces byte-identically usually means Colab pulled stale code, not a code defect. Confirm a log line unique to the new version appears.
+- `cv5_fusion.csv` is append-only; `summarise()` collapses superseded rows per (fold, subject, variant) and says how many it ignored.
+
+### Still open from P2
+- **Modality alignment** — vision keeps Speaking clips only, EEG keeps Listening only; validated only by per-class count matching on subjects 1–3. Sharpest examiner question.
+- EEGNet PyTorch-vs-TensorFlow baseline never verified.
+- Appendices and `chapter_9.tex` empty; last compiled PDF (2026-06-09) predates edits to chapters 3/4/5/6/8.
+- The P2 SOTA claim is **protocol-specific** (within-subject). Keep it explicitly labelled once cross-subject numbers appear in the same chapter.
 
 ## Workflow update (2026-06-01)
 - **Development machine transitioning from Mac to PC.** The Apple M1 MacBook Air (Visual Studio Code, no CUDA) was the primary dev box through end of May 2026; from 2026-06-01 onwards the user is working from a Windows PC using PyCharm. Same project, different filesystem and (potentially) different GitHub identity.
