@@ -36,7 +36,10 @@ Protocol
 
 Variants
 --------
-    naive_late      mean of per-modality softmax  (no training)
+    audio_only      the AST encoder's own head        (no training)
+    vision_only     the ViT encoder's own head        (no training)
+    eeg_only        the EEGNet encoder's own head     (no training)
+    naive_late      mean of per-modality softmax      (no training)
     cross_attn      TrimodalAttentionFusion
     concat_mlp      ConcatMLP
     dropout_full    TrimodalAttentionFusion + softhard dropout, all modalities
@@ -93,11 +96,14 @@ FEAT_DIMS = {"audio": 768, "vision": 768, "eeg": 960}
 # five folds to a queue.
 AUD_EPOCHS_FROZEN, AUD_EPOCHS_FT = 2, 2
 VIS_EPOCHS_FROZEN, VIS_EPOCHS_FT = 1, 1
-# Raised from 60 after the fold-0 calibration run: inner-validation accuracy
-# was still climbing (0.3758 -> 0.3833) and val loss still falling at the last
-# epoch, i.e. undertrained. EEGNet is small (375 steps/epoch at fold scale),
-# so the extra epochs are cheap insurance on the weakest modality.
-EEG_EPOCHS = 200
+# EEGNet overfits well before these budgets at fold scale: at 60 epochs
+# inner-val was loss 1.4469 / acc 0.3833, at 200 it was 1.6389 / 0.3567 while
+# training loss kept falling. Rather than tune the count to one noisy reading,
+# EEG_EPOCHS is now an UPPER BOUND and the best inner-validation epoch is kept
+# (see _train_eegnet_with_selection). Patience stops the run once inner-val
+# has not improved for EEG_PATIENCE epochs.
+EEG_EPOCHS = 120
+EEG_PATIENCE = 25
 
 # Fusion head budgets.
 FUSION_EPOCHS = 40
@@ -290,12 +296,82 @@ def train_fold_vision(fold: int, fit: list[int], val: list[int]) -> Path:
     return out
 
 
+def _train_eegnet_with_selection(model, tr_x, tr_y, va_x, va_y,
+                                 epochs: int, lr: float = 1e-5,
+                                 batch_size: int = 32):
+    """Train EEGNet, keeping the best inner-validation epoch.
+
+    Replicates Trainer_uni's recipe exactly -- Adam at `lr`, CrossEntropyLoss,
+    the same batch size, and model.train() re-entered every epoch (the Day-2
+    fix for validate() leaving the model in eval mode). The one difference is
+    that Trainer_uni.validate() only prints, and train_fold_eeg then saved
+    whatever state the FINAL epoch left behind. At fold scale EEGNet overfits
+    long before the budget, so the final epoch is the wrong model to keep.
+
+    Selection uses inner-validation SUBJECTS, the same ones held out of this
+    encoder's training -- matching the discipline used for the fusion heads.
+    """
+    from torch.utils.data import DataLoader, TensorDataset
+
+    tr_ds = TensorDataset(tr_x, torch.as_tensor(tr_y, dtype=torch.long))
+    va_ds = TensorDataset(va_x, torch.as_tensor(va_y, dtype=torch.long))
+    tr_dl = DataLoader(tr_ds, batch_size=batch_size, shuffle=True)
+    va_dl = DataLoader(va_ds, batch_size=batch_size, shuffle=False)
+
+    model = model.to(DEVICE)
+    crit = nn.CrossEntropyLoss()
+    opt = optim.Adam(model.parameters(), lr=lr)
+
+    best_acc, best_loss, best_epoch, since_best = -1.0, float("inf"), -1, 0
+    best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
+    for epoch in range(epochs):
+        model.train()
+        for xb, yb in tr_dl:
+            xb, yb = xb.to(DEVICE), yb.to(DEVICE)
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+
+        model.eval()
+        correct, total, vloss = 0, 0, 0.0
+        with torch.no_grad():
+            for xb, yb in va_dl:
+                xb, yb = xb.to(DEVICE), yb.to(DEVICE)
+                out = model(xb)
+                vloss += crit(out, yb).item() * yb.size(0)
+                correct += (out.argmax(dim=1) == yb).sum().item()
+                total += yb.size(0)
+        acc, vloss = correct / max(total, 1), vloss / max(total, 1)
+
+        if acc > best_acc:
+            best_acc, best_loss, best_epoch, since_best = acc, vloss, epoch + 1, 0
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        else:
+            since_best += 1
+
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            print(f"    [eeg] epoch {epoch + 1:3d}/{epochs}  "
+                  f"val_loss={vloss:.4f}  val_acc={acc:.4f}  (best {best_acc:.4f})")
+
+        if since_best >= EEG_PATIENCE:
+            print(f"    [eeg] early stop at epoch {epoch + 1}: "
+                  f"no improvement for {EEG_PATIENCE} epochs")
+            break
+
+    model.load_state_dict(best_state)
+    print(f"  [eeg] selected epoch {best_epoch}/{epochs}  "
+          f"(inner-val acc {best_acc:.4f}, loss {best_loss:.4f})")
+    return model
+
+
 def train_fold_eeg(fold: int, fit: list[int], val: list[int]) -> Path:
     out = STATE_DIR / f"fold{fold}_eeg.pt"
     if out.exists():
         print(f"  [eeg] cache hit: {out.name}")
         return out
-    from CNN_torch.EEGNet_tor import EEGNet_tor, Trainer_uni
+    from CNN_torch.EEGNet_tor import EEGNet_tor
 
     print(f"  [eeg] pooling {len(fit)} fit + {len(val)} val subjects...")
     tr_x, tr_y = pool_subjects(fit, "eeg")
@@ -306,10 +382,9 @@ def train_fold_eeg(fold: int, fit: list[int], val: list[int]) -> Path:
 
     model = EEGNet_tor(nb_classes=N_CLASSES, D=8, F2=64, Chans=30,
                        kernLength=300, Samples=500, dropoutRate=0.5)
-    trainer = Trainer_uni(model=model, data=[tr_x, tr_y, va_x, va_y],
-                          lr=1e-5, batch_size=32, num_epochs=EEG_EPOCHS)
-    trainer.train()
-    torch.save(_unwrap(trainer.model), out)
+    model = _train_eegnet_with_selection(model, tr_x, tr_y, va_x, va_y,
+                                         epochs=EEG_EPOCHS)
+    torch.save(_unwrap(model), out)
     print(f"  [eeg] saved {out.name}")
     return out
 
