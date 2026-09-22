@@ -171,9 +171,41 @@ def test_stage_c() -> None:
           "features and labels stay aligned across the subject boundary")
 
 
+def test_subject_normalisation() -> None:
+    """Per-participant standardisation must remove per-participant offsets, and
+    the two protocols must not overwrite each other's artefacts."""
+    rng = np.random.default_rng(0)
+    subj = np.repeat([1, 2, 3], 50)
+    d = {m: rng.normal(loc=subj[:, None] * 10.0, scale=2.0, size=(150, 4))
+         for m in cv.MODALITIES}
+    d["subject"] = subj
+    out = cv.subject_standardize(d)
+    for s in (1, 2, 3):
+        mask = subj == s
+        assert abs(out["audio"][mask].mean()) < 1e-4
+        assert abs(out["audio"][mask].std() - 1.0) < 1e-2
+
+    tmp = Path(tempfile.mkdtemp())
+    cv.FEAT_DIR, cv.LOGITS_DIR = tmp / "feat", tmp / "logits"
+    cv.FUSION_STATE_DIR, cv.FUSION_EPOCHS = tmp / "heads", 2
+    build_fake_caches(cv.FEAT_DIR)
+    rows_a: list[dict] = []
+    rows_b: list[dict] = []
+    cv.stage_c(FOLD, standardize=True, rows=rows_a, subject_norm=False)
+    cv.stage_c(FOLD, standardize=True, rows=rows_b, subject_norm=True)
+
+    assert {r["standardized"] for r in rows_a} == {1}
+    assert {r["standardized"] for r in rows_b} == {2}
+    names = {p.name for p in cv.LOGITS_DIR.glob("*.npz")}
+    assert {f"fold{FOLD}.npz", f"fold{FOLD}_subjnorm.npz"} <= names, names
+    print("OK: per-participant standardisation removes subject offsets; "
+          "the two protocols write separate artefacts and cannot collide")
+
+
 if __name__ == "__main__":
     test_folds_partition()
     test_vision_pooling()
     test_stage_c()
+    test_subject_normalisation()
     print("\nAll CV pipeline smoke tests PASSED")
     sys.exit(0)

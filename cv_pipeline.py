@@ -588,6 +588,37 @@ def apply_standardizer(d: dict, stats: dict) -> dict[str, np.ndarray]:
     return {m: (d[m] - stats[m][0]) / stats[m][1] for m in MODALITIES}
 
 
+def subject_standardize(d: dict) -> dict[str, np.ndarray]:
+    """Z-score each modality's features within each participant separately.
+
+    The default standardiser fits one mean and variance on the training
+    participants and applies it to everyone, so a held-out participant is
+    normalised by other people's statistics and their own offset survives into
+    the fusion input. That offset is subject identity, which Chapter 7 shows is
+    the component that does not transfer.
+
+    Normalising each participant by their own statistics removes that offset
+    without using any labels. It is applied to training and held-out
+    participants alike, so both sit in the same space.
+
+    NOTE: this is TRANSDUCTIVE. Computing a participant's statistics requires a
+    batch of their trials, so the method assumes a short unlabeled calibration
+    session per new user rather than one-shot inference on a single clip. The
+    assumption is standard in cross-subject EEG work but is weaker than the
+    default protocol and must be reported as such.
+    """
+    out = {}
+    for m in MODALITIES:
+        X = d[m].astype(np.float32, copy=True)
+        for s in np.unique(d["subject"]):
+            mask = d["subject"] == s
+            mu = X[mask].mean(axis=0, keepdims=True)
+            sd = X[mask].std(axis=0, keepdims=True) + 1e-6
+            X[mask] = (X[mask] - mu) / sd
+        out[m] = X
+    return out
+
+
 def to_tensors(feats: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
     return {m: torch.from_numpy(feats[m]).float().to(DEVICE) for m in MODALITIES}
 
@@ -652,7 +683,8 @@ def train_fusion_head(model: nn.Module, train_x: dict, train_y: torch.Tensor,
     return model
 
 
-def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
+def stage_c(fold: int, standardize: bool, rows: list[dict],
+              subject_norm: bool = False) -> None:
     print(f"\n--- Stage C: fold {fold} fusion variants ---")
     tr_subs, te_subs = train_subjects(fold), test_subjects(fold)
     fit_subs, val_subs = _inner_split(tr_subs)
@@ -662,7 +694,12 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
     print(f"  train {len(train['y']):,} trials / {len(tr_subs)} subjects")
     print(f"  test  {len(test['y']):,} trials / {len(te_subs)} subjects")
 
-    if standardize:
+    stats = None
+    if subject_norm:
+        train_f, test_f = subject_standardize(train), subject_standardize(test)
+        print("  features standardized PER PARTICIPANT (transductive; see "
+              "subject_standardize docstring)")
+    elif standardize:
         # Statistics come from the whole training fold -- standardisation is
         # preprocessing, not model selection, and the test fold is untouched.
         stats = fit_standardizer(train)
@@ -692,7 +729,8 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
             rows.append({
                 "fold": fold, "subject": sub, "variant": variant,
                 "test_acc": float((preds[m] == test["y"][m]).mean()),
-                "n_trials": int(m.sum()), "standardized": int(standardize),
+                "n_trials": int(m.sum()),
+                "standardized": 2 if subject_norm else int(standardize),
             })
         acc = float((preds == test["y"]).mean())
         print(f"    {variant:14s} pooled acc = {acc:.4f}")
@@ -745,6 +783,7 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
     # not reproduce these exact weights.
     LOGITS_DIR.mkdir(parents=True, exist_ok=True)
     FUSION_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tag = f"fold{fold}" + ("_subjnorm" if subject_norm else "")
 
     heads = {"cross_attn": m2, "concat_mlp": m3, "dropout": m4}
     payload = {"y": test["y"], "subject": test["subject"]}
@@ -760,15 +799,15 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
     for m in MODALITIES:
         payload[f"logits_{m}"] = test[f"logits_{m}"]
 
-    np.savez(LOGITS_DIR / f"fold{fold}.npz", **payload)
+    np.savez(LOGITS_DIR / f"{tag}.npz", **payload)
     for name, model in heads.items():
-        torch.save(model.state_dict(), FUSION_STATE_DIR / f"fold{fold}_{name}.pt")
-    if standardize:
+        torch.save(model.state_dict(), FUSION_STATE_DIR / f"{tag}_{name}.pt")
+    if stats is not None:
         # Conflict trials must be standardised with the same statistics.
-        np.savez(FUSION_STATE_DIR / f"fold{fold}_standardizer.npz",
+        np.savez(FUSION_STATE_DIR / f"{tag}_standardizer.npz",
                  **{f"{m}_{k}": v for m in MODALITIES
                     for k, v in zip(("mu", "sd"), stats[m])})
-    print(f"    saved heads + logits -> fold{fold}")
+    print(f"    saved heads + logits -> {tag}")
 
 
 # ---------------------------------------------------------------------------
@@ -859,9 +898,21 @@ def main() -> int:
                     help="CPU RAM budget for the preprocessed ViT training "
                          "tensor (224x224 float32). Raise on a high-RAM runtime "
                          "to train vision on more frames.")
+    ap.add_argument("--subject-norm", action="store_true",
+                    help="standardize features per participant instead of per fold "
+                         "(transductive; writes to a separate results CSV so the "
+                         "default-protocol numbers are left intact)")
     ap.add_argument("--summary-only", action="store_true")
     args = ap.parse_args()
     VIS_PREPROC_BUDGET_GB = args.vis_budget_gb
+
+    global RESULTS_CSV
+    if args.subject_norm:
+        # A separate file is mandatory, not cosmetic: rows would otherwise share
+        # (fold, subject, variant) keys with the default run and the supersede
+        # rule in summarise() would silently discard one protocol.
+        RESULTS_CSV = RESULTS / "cv5_fusion_subjectnorm.csv"
+        print(f"subject-norm protocol -> {RESULTS_CSV.name}")
 
     validate()
     if args.summary_only:
@@ -886,7 +937,8 @@ def main() -> int:
         if "B" in stages:
             stage_b(fold)
         if "C" in stages:
-            stage_c(fold, not args.no_standardize, rows)
+            stage_c(fold, not args.no_standardize, rows,
+                    subject_norm=args.subject_norm)
             append_rows(rows)
             rows = []
         print(f"\nfold {fold} done in {(time.time() - t0) / 60:.1f} min")
