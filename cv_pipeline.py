@@ -155,6 +155,7 @@ CLIPS_PER_SUBJECT = 400
 STATE_DIR = CHECKPOINTS / "cv5_state_dicts"
 FEAT_DIR = CHECKPOINTS / "cv5_features"
 LOGITS_DIR = CHECKPOINTS / "cv5_fusion_logits"
+FUSION_STATE_DIR = CHECKPOINTS / "cv5_fusion_heads"
 RESULTS_CSV = RESULTS / "cv5_fusion.csv"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -731,12 +732,43 @@ def stage_c(fold: int, standardize: bool, rows: list[dict]) -> None:
     record("dropout_full", eval_mode(m4, test_x, test_y, False, False, False)[1])
     record("dropout_av", eval_mode(m4, test_x, test_y, False, False, True)[1])
 
+    # Persist per-head logits AND the trained heads themselves.
+    #
+    # The logits previously went out with m4 (the dropout model) stored under
+    # the key "cross_attn", so any consumer reading that key silently got the
+    # wrong model. Each head now writes under its own name.
+    #
+    # The heads are saved because downstream analyses -- the cross-subject
+    # suppression matrix, and the cross-modal conflict experiment, which feeds
+    # the model mismatched modality pairs -- need to run the trained fusion
+    # models on inputs that are not the test set. Re-training them later would
+    # not reproduce these exact weights.
     LOGITS_DIR.mkdir(parents=True, exist_ok=True)
+    FUSION_STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    heads = {"cross_attn": m2, "concat_mlp": m3, "dropout": m4}
+    payload = {"y": test["y"], "subject": test["subject"]}
     with torch.no_grad():
-        np.savez(LOGITS_DIR / f"fold{fold}.npz",
-                 cross_attn=m4(test_x["audio"], test_x["vision"],
-                               test_x["eeg"])["logits"].cpu().numpy(),
-                 y=test["y"], subject=test["subject"])
+        for name, model in heads.items():
+            model.eval()
+            out = model(test_x["audio"], test_x["vision"], test_x["eeg"])
+            payload[name] = out["logits"].cpu().numpy()
+        # The zero-EEG demo path, from the dropout-trained head.
+        payload["dropout_av"] = m4(
+            test_x["audio"], test_x["vision"],
+            torch.zeros_like(test_x["eeg"]))["logits"].cpu().numpy()
+    for m in MODALITIES:
+        payload[f"logits_{m}"] = test[f"logits_{m}"]
+
+    np.savez(LOGITS_DIR / f"fold{fold}.npz", **payload)
+    for name, model in heads.items():
+        torch.save(model.state_dict(), FUSION_STATE_DIR / f"fold{fold}_{name}.pt")
+    if standardize:
+        # Conflict trials must be standardised with the same statistics.
+        np.savez(FUSION_STATE_DIR / f"fold{fold}_standardizer.npz",
+                 **{f"{m}_{k}": v for m in MODALITIES
+                    for k, v in zip(("mu", "sd"), stats[m])})
+    print(f"    saved heads + logits -> fold{fold}")
 
 
 # ---------------------------------------------------------------------------
