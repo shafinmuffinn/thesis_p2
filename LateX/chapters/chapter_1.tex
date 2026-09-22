@@ -28,7 +28,7 @@ Third, there is the corpus-realism problem. The EAV corpus is a cue-based, labor
 These three problems collectively define the challenge this thesis addresses: building a trimodal classification system that is strong enough to extract reliable signal from each modality, and then using the resulting modality-level predictions to characterise the structure of cross-modal disagreement at population scale.
 
 \section{Objectives and Research Questions}
-The thesis addresses five formal research questions, each corresponding to a specific empirical contribution in the results section.
+The thesis addresses seven formal research questions, each corresponding to a specific empirical contribution in the results section.
 
 \begin{enumerate}
     \item \textbf{RQ1---Per-modality baseline.} Can each of the audio, video and EEG modalities be classified into the five EAV emotion categories at a rate that meaningfully exceeds the EAV paper's published per-modality baselines (audio: 36.7\%, vision: 52.8\%, EEG: 36.7\%)? A positive result is necessary to establish that each modality carries genuine discriminative signal, without which fusion and coherence analysis are not interpretable.
@@ -36,6 +36,15 @@ The thesis addresses five formal research questions, each corresponding to a spe
     \item \textbf{RQ3---Architectural contribution.} Does learned trimodal cross-modal attention fusion outperform a naive softmax-averaging late-fusion baseline at full 42-subject scale? This question tests whether the architectural investment in an attention-based fusion module is warranted, or whether a much simpler combination suffices on this dataset.
     \item \textbf{RQ4---Coherence as signal.} When the modalities disagree---specifically, when audio and video consensus diverges from EEG prediction---what patterns of disagreement emerge, and are those patterns consistent across the subject population? This is the thesis's primary research question, and its answer constitutes the headline empirical contribution.
     \item \textbf{RQ5---Robustness.} Does the system continue to produce meaningful predictions when the EEG modality is unavailable at inference time? This question is clinically necessary: any eventual deployment scenario will involve individuals who do not have an EEG headset, and the system must degrade gracefully rather than producing uninformative output.
+    \item \textbf{RQ6---Cross-subject generalisation.} Does the system continue to
+    recognise emotions in participants it has never seen during training, and by how
+    much does accuracy change relative to the within-subject protocol? Subject-independent
+    evaluation is the standard credibility check in affective computing, and no prior
+    trimodal-fusion work on EAV has reported it.
+    \item \textbf{RQ7---Protocol dependence of the architectural contribution.} Does
+    the advantage of learned fusion over naive softmax averaging survive
+    subject-independent evaluation? This question tests whether the architectural
+    conclusions of the within-subject analysis describe the method or the protocol.
 \end{enumerate}
 
 \section{Methodology in Brief}

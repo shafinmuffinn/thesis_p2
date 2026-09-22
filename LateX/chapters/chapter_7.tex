@@ -1,9 +1,9 @@
-This chapter documents the thirteen distinct technical and methodological challenges encountered during the development of the cross-modal affective coherence framework. They are presented not as a catalogue of failures but as a record of the engineering rigour required to produce reproducible results on an imperfect open-source codebase. Each challenge includes its diagnosis, root cause, and resolution.
+This chapter documents the eighteen distinct technical and methodological challenges encountered during the development of the cross-modal affective coherence framework. They are presented not as a catalogue of failures but as a record of the engineering rigour required to produce reproducible results on an imperfect open-source codebase. Each challenge includes its diagnosis, root cause, and resolution.
 
 \begin{table}[htbp]
 \centering
 \scriptsize
-\caption{Summary of the thirteen engineering and methodological challenges.}
+\caption{Summary of the eighteen engineering and methodological challenges.}
 \label{tab:engineering_challenges}
 \begin{tabular}{p{1.0cm} p{4.7cm} p{3.2cm} p{4.2cm}}
 \hline
@@ -22,6 +22,11 @@ C10 & EEG-Neutral inflation confound in pilot & Methodological & Suppression mat
 C11 & Listen/Speak temporal asymmetry & Corpus design & Suppression matrix interpretation errors \\
 C12 & Windows/Mac path incompatibility & Development workflow & Scripts non-portable across platforms \\
 C13 & Research framing pivot & Methodological & Entire project lacks coherent contribution \\
+C14 & Encoder-cache leakage & Methodological & Cross-subject result silently inflated \\
+C15 & Clip/frame shape mismatch & Architecture bug & Fold-scale vision training crashes \\
+C16 & Preprocessed-tensor RAM budget & Infrastructure bug & Process killed at final batch \\
+C17 & Trainers persist final epoch & Training protocol bug & Overfit encoders saved and used \\
+C18 & Stale code in remote runtime & Development workflow & Fixed bugs appear to persist \\
 \hline
 \end{tabular}
 \end{table}
@@ -140,6 +145,7 @@ self.model = AutoModelForImageClassification.from_pretrained(
 The \texttt{from\_pretrained} call simultaneously re-initialises the head, updates \texttt{model.num\_labels}, and updates \texttt{model.config.num\_labels}, ensuring consistency across all references.
 
 \subsection*{C7---Vision Preprocessing RAM Exhaustion}
+\label{sec:c7}
 \textbf{Symptom.} The vision preprocessing cell appeared to hang indefinitely at approximately the 9,000-frame mark, then the Colab kernel terminated silently. No error message or stack trace was produced.
 
 \textbf{Root cause.} The original preprocessing loop iterated over each of the approximately 10,000 frames per subject one at a time, called the Hugging Face image processor on a single frame, and appended the result to a Python list. After the loop completed, \texttt{torch.stack(frame\_list).to(device)} was called. The stack operation produced a single tensor of shape $(10000,3,224,224)$, approximately 5.6 GB at float32, in CPU memory. Colab's CPU RAM limit was exceeded, causing the kernel to be killed by the out-of-memory manager without raising an exception.
@@ -168,6 +174,7 @@ MODALITY_DIRS = {'audio': 'Audio', 'vision': 'Vision', 'eeg': 'EEG'}
 \end{verbatim}
 
 \subsection*{C9---Missing Per-Modality Logits After 42-Subject Rollout}
+\label{sec:c9}
 \textbf{Symptom.} After the 42-subject overnight rollout completed, neither the naive late-fusion baseline nor the suppression matrix could be computed because the required per-modality test logits did not exist on Drive.
 
 \textbf{Root cause.} The Stage A pipeline saved per-subject model state dictionaries to enable downstream feature extraction for fusion training. However, the naive late-fusion baseline and suppression matrix both require the per-modality test logits, not just the model weights. Saving logits during Stage A had been planned but not implemented before the rollout was launched.
@@ -196,3 +203,113 @@ MODALITY_DIRS = {'audio': 'Audio', 'vision': 'Vision', 'eeg': 'EEG'}
 \textbf{Root cause.} EEG cannot be collected from in-the-wild audiovisual recordings such as films, social media videos, or surveillance feeds. The EEG modality requires physical contact with the subject's scalp via active electrodes. Any system that tracks emotion from arbitrary video content would therefore be operating with EEG zeroed or absent---effectively a bimodal audio-visual system, not the trimodal system the thesis had framed as its contribution.
 
 \textbf{Resolution.} The research framing was pivoted from accuracy-maximisation on arbitrary video to cross-modal affective coherence characterisation on the EAV laboratory corpus. This reframing produced a stronger and more scientifically precise thesis contribution: instead of claiming to build an in-the-wild tracker that could not be validated, the thesis characterises the structure of within-trial cross-modal disagreement at population scale---a contribution that is directly grounded in the available data and directly extensible to future clinical validation. All existing code and experimental artefacts were preserved; only the analysis strategy and the framing of the headline contribution changed.
+
+\section{Cross-Subject Evaluation Challenges}
+\label{sec:cs_challenges}
+
+The cross-subject evaluation of Chapter~\ref{chap:crosssubject} introduced a further
+five challenges. Three are engineering defects that arose specifically from scaling a
+per-subject pipeline to fold scale; two are methodological.
+
+\subsection*{C14---Encoder-Cache Leakage (Critical, Methodological)}
+
+\textbf{Symptom:} None. This is a defect that produces no error and no visibly
+anomalous number, which is what makes it dangerous.
+
+\textbf{Root cause:} The obvious implementation of a cross-subject evaluation reuses
+the cached per-subject encoders and features from the within-subject rollout, training
+a fusion head on 41 participants' cached features and testing on the 42nd. But each
+cached encoder was fine-tuned on its own participant, so the held-out participant's
+features are produced by a model already fitted to that participant. The resulting
+accuracy would be inflated and would fall plausibly between the true within-subject
+and cross-subject values, giving no signal that anything was wrong.
+
+\textbf{Resolution:} All three encoders are retrained from scratch per fold on
+training participants only. The constraint is documented directly in the pipeline's
+module docstring, because it is the kind of shortcut a future contributor would
+reasonably attempt. This retraining constitutes essentially the entire computational
+cost of the cross-subject evaluation.
+
+\subsection*{C15---Clip/Frame Shape Mismatch at Fold Scale}
+
+\textbf{Symptom:} \texttt{ValueError: Could not make a flat list of images}, raised by
+the Hugging Face image processor during fold-wise vision training.
+
+\textbf{Root cause:} \texttt{ImageClassifierTrainer} flattens clips into frames
+internally and derives its frames-per-clip count from the second dimension of the
+training array. The fold-scale data loader pre-flattened clips into frames before
+passing them in, so the trainer iterated over the rows of individual frames and
+handed the processor two-dimensional arrays of pixel values.
+
+A second defect was latent behind the first: the fitting and inner-validation sets
+were sampled independently and could receive different frames-per-clip counts. Since
+the frames-per-clip value is read from the fitting array alone and applied to both,
+the validation labels would have desynchronised from the validation frames.
+
+\textbf{Resolution:} The loader preserves clip structure and per-clip labels, and a
+single sampling plan is computed per fold and applied to both splits. A regression
+test replays the trainer's own flattening and label-repetition logic against the
+pooled array, so this class of shape error fails on CPU in seconds rather than after a
+fold's worth of GPU time.
+
+\subsection*{C16---Budgeting the Preprocessed Tensor, Not the Raw Frames}
+
+\textbf{Symptom:} The process was terminated immediately after the final
+preprocessing batch, with no exception.
+
+\textbf{Root cause:} Two compounding errors. First, the RAM guard budgeted the raw
+uint8 frames (9.4 KB each), but \texttt{preprocess\_images} resizes every frame to
+$224 \times 224$ float32---602 KB per frame, 64 times larger. A budget believed to be
+0.5 GB was in reality approximately 36 GB. Second, the method assembled its output by
+appending each batch to a list and calling \texttt{torch.cat}, which holds the list
+and its concatenated copy simultaneously, doubling peak memory at the very last batch.
+
+This is the same function in which the within-subject RAM exhaustion of
+Section~\ref{sec:c7} occurred, and the earlier fix---introducing the
+\texttt{torch.cat}---is what created the second half of the new failure.
+
+\textbf{Resolution:} The budget is applied to the preprocessed size and is
+configurable at the command line; the output is written into a preallocated tensor
+rather than concatenated, keeping peak memory equal to the size of the result. The
+general lesson is that a fix which scales a pipeline up by an order of magnitude
+warrants re-examining the fix itself, not merely the code around it.
+
+\subsection*{C17---Trainers Persist the Final Epoch, Not the Best}
+
+\textbf{Symptom:} EEG inner-validation accuracy was higher at 60 epochs (0.3833) than
+at 200 (0.3567), while training loss continued to fall.
+
+\textbf{Root cause:} Both \texttt{Trainer\_uni} and \texttt{ImageClassifierTrainer}
+compute validation accuracy every epoch but neither returns it nor retains the
+corresponding weights; the driver saves whatever state the final epoch leaves behind.
+At fold scale EEGNet overfits well before the epoch budget, so the persisted model was
+systematically worse than the best model observed during the same run.
+
+A related failure appeared once selection was added for vision: the selector initially
+ranged over both the frozen and fine-tuning phases and chose a frozen-backbone
+checkpoint whose inner-validation accuracy exceeded the fine-tuned one by 0.25
+percentage points---inside the approximately 0.8-point noise floor of a 3,600-frame
+validation set---while scoring 10 points worse on held-out participants.
+
+\textbf{Resolution:} Epoch budgets become upper bounds and the best
+inner-validation checkpoint is retained, with early stopping for EEGNet. Vision
+selection is restricted to the fine-tuning phase, on the principle that a
+frozen-backbone model is a linear probe rather than an earlier epoch of the
+architecture under evaluation. The broader lesson is that model selection requires a
+validation set sized to the decision being made, not merely to the metric: a criterion
+finer-grained than its own noise floor will choose arbitrarily, and the consequences
+need not be small.
+
+\subsection*{C18---Stale Code in the Remote Runtime}
+
+\textbf{Symptom:} A crash reproduced byte-for-byte after the fix had been written,
+tested and committed---including a log line that no longer existed in the fixed code.
+
+\textbf{Root cause:} The workflow authors code locally and executes it in a Colab
+runtime that pulls from GitHub. A fix that is committed but not pushed, or pushed but
+not pulled, reproduces the original failure exactly. This occurred three times and
+cost several hours of GPU time.
+
+\textbf{Resolution:} The pipeline prints its own short git commit hash and a
+working-tree-dirty flag before performing any work, so verifying that the running code
+is the intended code is a one-line check rather than an inference from log formats.
