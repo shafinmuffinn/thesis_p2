@@ -71,17 +71,27 @@ class ImageClassifierTrainer:
         # Keep result on CPU; the DataLoader moves per-batch to GPU at train
         # time. Original code stacked all 10k tensors on CPU then dumped 4 GB
         # onto GPU upfront, which OOM'd Colab Free.
+        # NB: preallocate and fill in place. The previous version appended each
+        # batch to a list and finished with torch.cat(chunks), which holds the
+        # list AND the concatenated copy simultaneously -- a 2x spike at the
+        # very last batch. At fold scale (37,200 frames = 20.9 GB of 224x224
+        # float32) that peak is ~42 GB and kills the process right after
+        # "preprocessing 37184/37200". Writing into a preallocated tensor keeps
+        # the peak at the size of the result.
         all_imgs = [img for clip in image_list for img in clip]
         total = len(all_imgs)
-        chunks = []
         BATCH = 64
+        out = None
         for i in range(0, total, BATCH):
             batch = all_imgs[i:i+BATCH]
             processed = self.processor(images=batch, return_tensors="pt")
-            chunks.append(processed.pixel_values)  # (B, 3, 224, 224) float32
+            pv = processed.pixel_values  # (B, 3, 224, 224) float32
+            if out is None:
+                out = torch.empty((total, *pv.shape[1:]), dtype=pv.dtype)
+            out[i:i + pv.shape[0]] = pv
             if (i // BATCH) % 20 == 0:
                 print(f"  preprocessing {min(i+BATCH, total)}/{total}", flush=True)
-        return torch.cat(chunks, dim=0)  # CPU tensor
+        return out  # CPU tensor
 
     def train(self, epochs=3, lr=None, freeze=True, log = False):
         # Update learning rate if provided, otherwise use the initial learning rate

@@ -140,7 +140,14 @@ INNER_VAL_SUBJECTS = 3
 # subject). The ViT trains per-frame, so frames are near-interchangeable
 # training examples; Stage B extraction always uses all 25 frames.
 #
+# The budget is the size of the RESULT. preprocess_images used to peak at 2x
+# that (a chunk list plus its concatenation) and killed fold 2 at 37,200
+# frames; it now fills a preallocated tensor, so peak == result. Both the
+# training and inner-validation tensors are resident at once, so leave headroom.
+#
 # Raise this on a high-RAM runtime via --vis-budget-gb to train on more frames.
+# Keep it IDENTICAL across folds: changing it changes how much data the vision
+# encoder sees, and folds trained on different amounts are not comparable.
 PREPROC_FRAME_BYTES = 224 * 224 * 3 * 4
 VIS_PREPROC_BUDGET_GB = 8.0
 CLIPS_PER_SUBJECT = 400
