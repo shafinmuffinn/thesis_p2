@@ -134,7 +134,11 @@ class ImageClassifierTrainer:
                 loss.backward()
                 self.optimizer.step()
 
-                print(f'batch ({batch_idx}/{total_batches})')
+                # Every batch at fold scale is ~1,163 lines per epoch, ~5,800
+                # per fold, which truncates the log and buries the
+                # inner-validation numbers that actually matter.
+                if batch_idx % 100 == 0 or batch_idx == total_batches:
+                    print(f'batch ({batch_idx}/{total_batches})', flush=True)
 
             
             self.model.eval()
