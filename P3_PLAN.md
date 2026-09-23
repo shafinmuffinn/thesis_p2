@@ -172,6 +172,18 @@ still says "Summer, 2026" semester; final_full "designated primary a priori" wor
 Open option (user decides): calibrated-naive control (per-participant logit
 centering before averaging) = Limitation 3; cheap, CPU, cached logits.
 
+## Decisions 24 Sep (user answers)
+- Turnitin compares against OUR OWN P2; ~20% similarity allowed INCLUDING references
+  and template pages -> body text must be essentially 0% verbatim P2.
+- Full standalone thesis; Ch1-5 condensed in fresh wording; no page limit.
+- Rewrite also C1-C13 (engineering) and Ch6 per-modality/naive sections. Cross-subject
+  chapter was never submitted anywhere. P2 diagrams may be reused.
+- Supervisor does NOT yet know about the SOTA retraction / suppression result.
+- Defence talk 5-10 min with slides (-> ~8-10 slides, not 15-18); slides later.
+- Experiments chosen: A calibrated-naive control, B labelled few-shot, D per-modality
+  calibration, E attention-weight analysis. Order A -> D -> E -> B (B dropped first).
+- Submission: 26 Sep 23:00 (Dhaka).
+
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
 subject calibration** (calibration-size curve + neutral-only + skewed robustness),
