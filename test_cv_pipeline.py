@@ -202,10 +202,44 @@ def test_subject_normalisation() -> None:
           "the two protocols write separate artefacts and cannot collide")
 
 
+def test_subject_norm_only() -> None:
+    """Per-modality ablation: listed modality per participant, the rest per fold,
+    and its artefacts must not overwrite the full subject-norm run's."""
+    rng = np.random.default_rng(1)
+    subj = np.repeat([1, 2, 3], 50)
+    d = {m: rng.normal(loc=subj[:, None] * 10.0, scale=2.0, size=(150, 4))
+         for m in cv.MODALITIES}
+    d["subject"] = subj
+    out = cv.subject_standardize(d, ("vision",))
+    assert set(out) == {"vision"}, set(out)
+    for s in (1, 2, 3):
+        assert abs(out["vision"][subj == s].mean()) < 1e-4
+
+    tmp = Path(tempfile.mkdtemp())
+    cv.FEAT_DIR, cv.LOGITS_DIR = tmp / "feat", tmp / "logits"
+    cv.FUSION_STATE_DIR, cv.FUSION_EPOCHS = tmp / "heads", 2
+    build_fake_caches(cv.FEAT_DIR)
+    rows: list[dict] = []
+    cv.stage_c(FOLD, standardize=True, rows=rows, subject_norm_only=("vision",))
+    assert {r["standardized"] for r in rows} == {3}
+    assert (cv.LOGITS_DIR / f"fold{FOLD}_subjnorm_vision.npz").exists()
+    assert not (cv.LOGITS_DIR / f"fold{FOLD}_subjnorm.npz").exists()
+    assert (cv.FUSION_STATE_DIR / f"fold{FOLD}_subjnorm_vision_concat_mlp.pt").exists()
+    try:
+        cv.stage_c(FOLD, standardize=True, rows=[], subject_norm=True,
+                   subject_norm_only=("vision",))
+        raise AssertionError("both flags together must be rejected")
+    except ValueError:
+        pass
+    print("OK: per-modality subject-norm standardises only the listed modality "
+          "and writes separately tagged artefacts")
+
+
 if __name__ == "__main__":
     test_folds_partition()
     test_vision_pooling()
     test_stage_c()
     test_subject_normalisation()
+    test_subject_norm_only()
     print("\nAll CV pipeline smoke tests PASSED")
     sys.exit(0)

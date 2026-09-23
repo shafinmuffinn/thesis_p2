@@ -10,6 +10,7 @@ family, and Holm correction is applied within that family:
   4. within_leakfree   within-subject, leak-free                (p2_leakfree.csv)
   5. calibration curve accuracy vs n calibration clips, with CIs (calibration_study.csv)
   6. per-class recall  pooled over held-out trials, both protocols (cv5_fusion_logits)
+  7. per-modality calibration  experiment D (cv5_fusion_subjectnorm_<modality>.csv)
 
     python p3_stats.py
 """
@@ -231,11 +232,48 @@ def per_class() -> None:
           + [IDX_TO_EMOTION[c] for c in range(5)], out)
 
 
+def per_modality_calibration() -> None:
+    """Experiment D: whose identity offset matters? Each single-modality run vs
+    the default, and the share of the full calibration gain it recovers."""
+    default = latest_per_subject(read(RESULTS / "cv5_fusion.csv"))
+    full = latest_per_subject(read(RESULTS / "cv5_fusion_subjectnorm.csv"))
+    runs = {}
+    for m in ("audio", "vision", "eeg"):
+        path = RESULTS / f"cv5_fusion_subjectnorm_{m}.csv"
+        if path.exists():
+            runs[m] = latest_per_subject(read(path))
+    print("\n" + "=" * 72 + "\n7. PER-MODALITY CALIBRATION (experiment D)\n" + "=" * 72)
+    if not runs:
+        print("  no cv5_fusion_subjectnorm_<modality>.csv yet; skipping")
+        return
+    out = []
+    print(f"  {'head':14s}{'default':>9s}" + "".join(f"{m + ' only':>13s}" for m in runs)
+          + f"{'all':>9s}")
+    for h in HEADS:
+        d0, d1 = np.mean(list(default[h].values())), np.mean(list(full[h].values()))
+        cells = []
+        for m, data in runs.items():
+            dm = np.mean(list(data[h].values()))
+            share = (dm - d0) / (d1 - d0) if d1 != d0 else float("nan")
+            cells.append(f"{dm:8.4f}({share:+4.0%})")
+            out.append(dict(head=h, modality=m, default=round(d0, 4), partial=round(dm, 4),
+                            full=round(d1, 4), share_of_gain=round(share, 4)))
+        print(f"  {h:14s}{d0:9.4f}" + "".join(f"{c:>13s}" for c in cells) + f"{d1:9.4f}")
+    write("per_modality_calibration",
+          ["head", "modality", "default", "partial", "full", "share_of_gain"], out)
+    # Each partial run vs default, per head: one Holm family.
+    merged = {f"{h}:{m}": runs[m][h] for m in runs for h in HEADS}
+    merged.update({f"{h}:default": default[h] for h in HEADS})
+    test_family("per_modality_calibration",
+                [(f"{h}:{m}", f"{h}:default") for m in runs for h in HEADS], merged)
+
+
 def main() -> int:
     cross_sections()
     within_section()
     calibration_curve()
     per_class()
+    per_modality_calibration()
     print(f"\nAll tables written to {OUT}")
     return 0
 

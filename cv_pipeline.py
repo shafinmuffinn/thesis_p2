@@ -588,8 +588,9 @@ def apply_standardizer(d: dict, stats: dict) -> dict[str, np.ndarray]:
     return {m: (d[m] - stats[m][0]) / stats[m][1] for m in MODALITIES}
 
 
-def subject_standardize(d: dict) -> dict[str, np.ndarray]:
-    """Z-score each modality's features within each participant separately.
+def subject_standardize(d: dict, modalities: tuple[str, ...] = tuple(MODALITIES)
+                        ) -> dict[str, np.ndarray]:
+    """Z-score each listed modality's features within each participant separately.
 
     The default standardiser fits one mean and variance on the training
     participants and applies it to everyone, so a held-out participant is
@@ -606,9 +607,13 @@ def subject_standardize(d: dict) -> dict[str, np.ndarray]:
     session per new user rather than one-shot inference on a single clip. The
     assumption is standard in cross-subject EEG work but is weaker than the
     default protocol and must be reported as such.
+
+    `modalities` restricts the per-participant treatment to a subset; the
+    per-modality ablation (--subject-norm-only) uses it to ask whose identity
+    offset is responsible. Only the listed modalities are returned.
     """
     out = {}
-    for m in MODALITIES:
+    for m in modalities:
         X = d[m].astype(np.float32, copy=True)
         for s in np.unique(d["subject"]):
             mask = d["subject"] == s
@@ -684,7 +689,17 @@ def train_fusion_head(model: nn.Module, train_x: dict, train_y: torch.Tensor,
 
 
 def stage_c(fold: int, standardize: bool, rows: list[dict],
-              subject_norm: bool = False) -> None:
+              subject_norm: bool = False,
+              subject_norm_only: tuple[str, ...] = ()) -> None:
+    """Train and score every fusion variant for one fold.
+
+    subject_norm        every modality standardised per participant.
+    subject_norm_only   per-modality ablation: only these modalities are
+                        standardised per participant; the rest keep the default
+                        per-fold statistics. Mutually exclusive with subject_norm.
+    """
+    if subject_norm and subject_norm_only:
+        raise ValueError("subject_norm and subject_norm_only are mutually exclusive")
     print(f"\n--- Stage C: fold {fold} fusion variants ---")
     tr_subs, te_subs = train_subjects(fold), test_subjects(fold)
     fit_subs, val_subs = _inner_split(tr_subs)
@@ -695,7 +710,14 @@ def stage_c(fold: int, standardize: bool, rows: list[dict],
     print(f"  test  {len(test['y']):,} trials / {len(te_subs)} subjects")
 
     stats = None
-    if subject_norm:
+    if subject_norm_only:
+        stats = fit_standardizer(train)
+        train_f, test_f = apply_standardizer(train, stats), apply_standardizer(test, stats)
+        train_f.update(subject_standardize(train, subject_norm_only))
+        test_f.update(subject_standardize(test, subject_norm_only))
+        print(f"  features standardized PER PARTICIPANT for {list(subject_norm_only)}; "
+              f"per fold for the rest")
+    elif subject_norm:
         train_f, test_f = subject_standardize(train), subject_standardize(test)
         print("  features standardized PER PARTICIPANT (transductive; see "
               "subject_standardize docstring)")
@@ -730,7 +752,8 @@ def stage_c(fold: int, standardize: bool, rows: list[dict],
                 "fold": fold, "subject": sub, "variant": variant,
                 "test_acc": float((preds[m] == test["y"][m]).mean()),
                 "n_trials": int(m.sum()),
-                "standardized": 2 if subject_norm else int(standardize),
+                "standardized": 3 if subject_norm_only else (2 if subject_norm
+                                                             else int(standardize)),
             })
         acc = float((preds == test["y"]).mean())
         print(f"    {variant:14s} pooled acc = {acc:.4f}")
@@ -783,7 +806,8 @@ def stage_c(fold: int, standardize: bool, rows: list[dict],
     # not reproduce these exact weights.
     LOGITS_DIR.mkdir(parents=True, exist_ok=True)
     FUSION_STATE_DIR.mkdir(parents=True, exist_ok=True)
-    tag = f"fold{fold}" + ("_subjnorm" if subject_norm else "")
+    tag = f"fold{fold}" + ("_subjnorm" if subject_norm else "") + (
+        f"_subjnorm_{'+'.join(subject_norm_only)}" if subject_norm_only else "")
 
     heads = {"cross_attn": m2, "concat_mlp": m3, "dropout": m4}
     payload = {"y": test["y"], "subject": test["subject"]}
@@ -902,9 +926,18 @@ def main() -> int:
                     help="standardize features per participant instead of per fold "
                          "(transductive; writes to a separate results CSV so the "
                          "default-protocol numbers are left intact)")
+    ap.add_argument("--subject-norm-only", default="",
+                    help="per-modality ablation: comma list of modalities "
+                         "(audio,vision,eeg) standardized per participant; the rest "
+                         "per fold. Writes cv5_fusion_subjectnorm_<mods>.csv")
     ap.add_argument("--summary-only", action="store_true")
     args = ap.parse_args()
     VIS_PREPROC_BUDGET_GB = args.vis_budget_gb
+    only = tuple(m.strip() for m in args.subject_norm_only.split(",") if m.strip())
+    if set(only) - set(MODALITIES):
+        ap.error(f"--subject-norm-only: unknown modality in {only}")
+    if only and args.subject_norm:
+        ap.error("--subject-norm and --subject-norm-only are mutually exclusive")
 
     global RESULTS_CSV
     if args.subject_norm:
@@ -913,6 +946,9 @@ def main() -> int:
         # rule in summarise() would silently discard one protocol.
         RESULTS_CSV = RESULTS / "cv5_fusion_subjectnorm.csv"
         print(f"subject-norm protocol -> {RESULTS_CSV.name}")
+    elif only:
+        RESULTS_CSV = RESULTS / f"cv5_fusion_subjectnorm_{'+'.join(only)}.csv"
+        print(f"per-modality subject-norm {list(only)} -> {RESULTS_CSV.name}")
 
     validate()
     if args.summary_only:
@@ -938,7 +974,7 @@ def main() -> int:
             stage_b(fold)
         if "C" in stages:
             stage_c(fold, not args.no_standardize, rows,
-                    subject_norm=args.subject_norm)
+                    subject_norm=args.subject_norm, subject_norm_only=only)
             append_rows(rows)
             rows = []
         print(f"\nfold {fold} done in {(time.time() - t0) / 60:.1f} min")
