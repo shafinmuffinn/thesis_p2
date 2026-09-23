@@ -15,7 +15,7 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 ### Experiments
 - [x] M 0.5h — Run `--subject-norm` Stage C, all folds. DoD: `cv5_fusion_subjectnorm.csv` exists; summary table sent.
 - [ ] M 0.5h — Alignment sequence check. DoD: per subject, does the EEG label sequence equal the audio and vision label sequences element-wise; mismatch count.
-- [ ] M 1.5h — Identity probe. DoD: subject-ID decoding accuracy per modality, fold-norm vs subject-norm features, with chance level.
+- [x] M 1.5h — Identity probe. DoD: subject-ID decoding accuracy per modality, fold-norm vs subject-norm features, with chance level.
 - [ ] M 2h — Leak-free within-subject rerun (validation split from the 280 train trials; cross_attn, concat_mlp, dropout). DoD: `p2_leakfree.csv` for 42 subjects.
 
 **Checkpoint 23:** subject-norm, identity, alignment results in hand; leak-free rerun done or running.
@@ -109,6 +109,15 @@ suppression matrix → drop the skewed condition from the report (keep random) �
   exclude/flag. concat_mlp still edges attention variants by ~0.8-1.9pp.
 - 23 Sep: identity_probe.py written; below-chance artefact caught and fixed
   (normalisation stats now from probe-train half only).
+
+- 23 Sep: identity_probe DONE. Identity linearly decodable: vision 100%, audio
+  97%, EEG 82% (chance 2.4%); subject-norm -> chance in all three. Emotion
+  cross-subject linear probe gains: vision +13.6, EEG +10.1, audio +9.2pp
+  (40-41/42 improved, all p<1e-4). REVISE Ch7: identity is in ALL modalities
+  (audio 97% yet transferred at parity) -> what matters is entanglement with
+  the emotion decision; vision most entangled. "Removed to chance" is partly
+  by construction (z-scoring removes 1st/2nd moments) -- say so.
+- 23 Sep: p2_leakfree.py + label_sequence_check.py written and tested.
 
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
