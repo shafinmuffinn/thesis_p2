@@ -203,3 +203,21 @@ Block 1 order now: calibration_study (M) -> identity probe (M) -> alignment (M)
   New local tests (p3_stats robustness family): dropout_av > cross_attn +2.42pp
   p_holm .0043; dropout_full - dropout_av +0.63 n.s.
 
+- 24/25 Sep: A/B/D/E RESULTS (all pre-specified, pushed before running):
+  A calibrated averaging (logit centring) = 74.87 transductive / 72.95 n=20 /
+    73.98 n=50; heads vs it -1.30..+1.10pp, ALL n.s. (p_holm>=0.495). ->
+    HEADLINE CHANGED: the 11-14pp is CALIBRATION, not learned fusion.
+    Cal. averaging beats cal. audio by ~9pp (fusion still matters).
+  D vision-only calibration recovers 67-72% of gain, audio-only 25-30%,
+    EEG-only ~0-15% (only concat sig).
+  E attention IS dynamic (within-person SD 0.05-0.11); up-weights audio when
+    audio right (all 4 sig); DOWN-weights EEG when EEG right (all 4 sig);
+    calibration moves weight EEG->audio, vision unchanged.
+  B labelled fine-tune on same clips: +5.6..+7.4pp at n=50 (42/42), heads
+    80.4-81.9%; exploratory: labelled dropout-attn > labelled concat +0.94pp
+    p_holm .027 at n=50 only. Grid picked 50 steps in 13/15 cases (may underestimate).
+  Written into Ch 8 (commit bf6d9e9). PENDING: labelled_naive.py (labelled
+    averaging control) -> decides whether learned fusion uses labels better
+    than averaging. Then rewrite abstract, Ch1 contributions, Ch7 RQ7/discussion,
+    Ch11 summary/contrib/RQ table/Lim 3 around the new headline.
+
