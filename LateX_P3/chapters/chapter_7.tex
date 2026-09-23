@@ -1,9 +1,9 @@
-This chapter documents the eighteen distinct technical and methodological challenges encountered during the development of the cross-modal affective coherence framework. They are presented not as a catalogue of failures but as a record of the engineering rigour required to produce reproducible results on an imperfect open-source codebase. Each challenge includes its diagnosis, root cause, and resolution.
+This chapter documents the twenty-four distinct technical and methodological challenges encountered during the development of the trimodal fusion framework and its evaluation. They are presented not as a catalogue of failures but as a record of the engineering rigour required to produce reproducible results on an imperfect open-source codebase. Each challenge includes its diagnosis, root cause, and resolution.
 
 \begin{table}[htbp]
 \centering
 \scriptsize
-\caption{Summary of the eighteen engineering and methodological challenges.}
+\caption{Summary of the twenty-four engineering and methodological challenges.}
 \label{tab:engineering_challenges}
 \begin{tabular}{p{1.0cm} p{4.7cm} p{3.2cm} p{4.2cm}}
 \hline
@@ -27,6 +27,12 @@ C15 & Clip/frame shape mismatch & Architecture bug & Fold-scale vision training 
 C16 & Preprocessed-tensor RAM budget & Infrastructure bug & Process killed at final batch \\
 C17 & Trainers persist final epoch & Training protocol bug & Overfit encoders saved and used \\
 C18 & Stale code in remote runtime & Development workflow & Fixed bugs appear to persist \\
+C19 & Epoch selection on the test set & Methodological & Fusion results inflated 5--7.5 pp \\
+C20 & Report describes a different dropout scheme & Documentation & Method not reproducible from text \\
+C21 & Below-chance identity probe & Analysis bug & Calibration effect overstated \\
+C22 & Mislabelled logits key & Analysis bug & Wrong model analysed silently \\
+C23 & Double-counted confidence & Methodological & Futile dynamic-fusion search \\
+C24 & Uninformative alignment check & Methodological & Alignment claimed but unverified \\
 \hline
 \end{tabular}
 \end{table}
@@ -202,7 +208,7 @@ MODALITY_DIRS = {'audio': 'Audio', 'vision': 'Vision', 'eeg': 'EEG'}
 
 \textbf{Root cause.} EEG cannot be collected from in-the-wild audiovisual recordings such as films, social media videos, or surveillance feeds. The EEG modality requires physical contact with the subject's scalp via active electrodes. Any system that tracks emotion from arbitrary video content would therefore be operating with EEG zeroed or absent---effectively a bimodal audio-visual system, not the trimodal system the thesis had framed as its contribution.
 
-\textbf{Resolution.} The research framing was pivoted from accuracy-maximisation on arbitrary video to cross-modal affective coherence characterisation on the EAV laboratory corpus. This reframing produced a stronger and more scientifically precise thesis contribution: instead of claiming to build an in-the-wild tracker that could not be validated, the thesis characterises the structure of within-trial cross-modal disagreement at population scale---a contribution that is directly grounded in the available data and directly extensible to future clinical validation. All existing code and experimental artefacts were preserved; only the analysis strategy and the framing of the headline contribution changed.
+\textbf{Resolution.} The research framing was pivoted from accuracy-maximisation on arbitrary video to cross-modal affective coherence characterisation on the EAV laboratory corpus. This reframing produced a stronger and more scientifically precise thesis contribution: instead of claiming to build an in-the-wild tracker that could not be validated, the thesis characterises the structure of within-trial cross-modal disagreement at population scale---a contribution that is directly grounded in the available data and directly extensible to future clinical validation. All existing code and experimental artefacts were preserved; only the analysis strategy and the framing of the headline contribution changed. The final phase then tested the coherence contribution directly and found it unsupported: the suppression matrix is indistinguishable from the EEG classifier's own errors (Section~\ref{sec:audit_suppression}). The headline contribution moved accordingly to subject calibration, and the coherence analysis is retained as an audited negative result.
 
 \section{Cross-Subject Evaluation Challenges}
 \label{sec:cs_challenges}
@@ -313,3 +319,108 @@ cost several hours of GPU time.
 \textbf{Resolution:} The pipeline prints its own short git commit hash and a
 working-tree-dirty flag before performing any work, so verifying that the running code
 is the intended code is a one-line check rather than an inference from log formats.
+
+\section{Final-Phase Integrity Challenges}
+\label{sec:p3_challenges}
+
+The final phase of the thesis re-examined the Pre-Thesis~II results before building on
+them. Six further challenges arose. Four are methodological and concern whether a
+reported number means what it appears to mean; two are analysis bugs caught before
+their output was used.
+
+\subsection*{C19---Epoch Selection on the Test Set (Critical, Methodological)}
+
+\textbf{Symptom:} None at the time. The learned fusion heads beat naive late fusion by
+2.7--7.2 points within-subject, a plausible result that nothing contradicted until the
+cross-subject evaluation reversed it.
+
+\textbf{Root cause:} The three Pre-Thesis~II fusion scripts evaluated each head on the
+test trials after every epoch and reported the best, so each reported accuracy was the
+maximum of 80 test measurements. Naive late fusion has no epochs and received no such
+boost. The practice was described openly in the report as ``best-test-epoch
+checkpointing''; the error was in not recognising it as selection on the test set.
+
+\textbf{Resolution:} \texttt{p2\_leakfree.py} re-ran the exact recipe with three leak-free
+readouts and one test-selected readout from the same trajectories, measuring the
+inflation directly at 5.3--7.5 points (Section~\ref{sec:audit_selection}). All fusion
+figures in this report are leak-free, the state-of-the-art claim is withdrawn, and the
+cross-subject pipeline selects epochs on inner-validation participants only. The
+lesson: a selection rule must be written down together with the data it is allowed to
+see, and ``best epoch'' is incomplete until it says best on what.
+
+\subsection*{C20---The Report Described a Different Dropout Scheme}
+
+\textbf{Symptom:} The Pre-Thesis~II methodology chapter stated that softhard modality
+dropout expands each batch of $N$ trials into four sub-batches ($4N$ trials), one per
+modality configuration.
+
+\textbf{Root cause:} The implementation in \texttt{day7\_modality\_dropout.py} does
+something different: for each sample independently, with probability 0.5, it zeroes
+one randomly chosen modality and rescales the remaining ones by $3/n_{\mathrm{active}}$.
+The text described the design as first planned; the code implemented the scheme of
+the reference repository \cite{Chumachenko2022SelfAttention}. Every reported number
+came from the code.
+
+\textbf{Resolution:} Section~\ref{sec:modality_dropout} now describes the implemented
+scheme. Methodology text is checked against the function it describes, not against the
+plan.
+
+\subsection*{C21---A Below-Chance Identity Probe}
+
+\textbf{Symptom:} After per-participant normalisation, the 42-way identity probe scored
+0.0\%, far \emph{below} the 2.4\% chance rate.
+
+\textbf{Root cause:} The normalisation statistics were computed from all of a
+participant's trials, but the probe was trained on one half and tested on the other.
+Subtracting the full-set mean makes the two halves' means mirror images of each other,
+so the probe learned a direction that is systematically wrong on the held-out half.
+Below-chance accuracy is as much a sign of leakage as above-chance accuracy.
+
+\textbf{Resolution:} The statistics are computed from the probe's training half only,
+which places the probe at chance (2.4--2.5\%). The unfixed version would have overstated
+how much identity calibration removes.
+
+\subsection*{C22---A Mislabelled Logits Key}
+
+\textbf{Symptom:} None; the saved file had the expected keys and shapes.
+
+\textbf{Root cause:} Stage C of the cross-subject pipeline wrote the logits of the
+modality-dropout head under the key \texttt{cross\_attn}, so any consumer reading that
+key silently received a different model.
+
+\textbf{Resolution:} Caught in review before folds 1--4 were run; each head now writes
+under its own name, and the trained heads themselves are saved so downstream analyses
+run the exact models that were scored rather than re-training them.
+
+\subsection*{C23---Double-Counted Confidence}
+
+\textbf{Symptom:} Every confidence-weighted dynamic late-fusion variant scored below
+plain averaging on unseen participants, by up to 3.8 points
+(Section~\ref{sec:cal_negative}).
+
+\textbf{Root cause:} The premise was flawed. Mean-softmax averaging is already
+confidence-weighted, because a confident modality contributes a peaked distribution that
+dominates the mean; explicitly weighting by confidence again counts it twice and gives
+over-confident modalities more control. The encoders are over-confident on unseen
+participants (fitted temperatures 1.5--2.0).
+
+\textbf{Resolution:} Recorded as a negative result, with the calibration diagnostic and
+temperature-scaling control that explain it. The failure redirected the work from
+reweighting decisions to normalising the input representation, which is where the
+thesis's main result was found.
+
+\subsection*{C24---An Alignment Check That Could Not Fail}
+
+\textbf{Symptom:} All 84 train and test splits had identical label sequences across the
+three modalities---an apparently strong confirmation of trial alignment.
+
+\textbf{Root cause:} Every sequence was sorted into five class blocks. Any two
+class-blocked sequences with equal class counts match element-wise, so the check was
+guaranteed to pass whatever the underlying trial order.
+
+\textbf{Resolution:} \texttt{label\_sequence\_check.py} reports the number of label
+changes along each sequence and declares a match uninformative when the sequence is
+blocked. Trial correspondence is reported as unverified
+(Section~\ref{sec:audit_alignment}). The general lesson for every check in this
+chapter: before trusting a test that passes, confirm that it was capable of failing.
+

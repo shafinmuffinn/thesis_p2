@@ -57,7 +57,7 @@ Chen et al. \cite{Chen2022EAV} introduced a dataset for emotion recognition with
 
 \subsection*{Prior trimodal-fusion methods evaluated on EAV}
 
-Since the EAV dataset's release in September 2024, three trimodal-fusion methods have been published that evaluate on it directly. Each of these is the most relevant prior work for the present thesis and the comparison baselines in Chapter~6 are drawn from them.
+Since the EAV dataset's release in September 2024, three trimodal-fusion methods have been published that evaluate on it directly. Each of these is the most relevant prior work for the present thesis and the comparison baselines in Chapter~\ref{chap:within} are drawn from them.
 
 Yin, Shin, Li and Lee \cite{Yin2024AMERL} introduced AMERL, the first attention-based trimodal-fusion method on EAV. AMERL uses modality-tailored transformers as per-modality encoders, then applies self-attention fusion over their pooled features---an architectural design closely related to the present thesis's \texttt{TrimodalAttentionFusion}, although with stronger per-modality encoders and without modality-dropout training. AMERL reports 70.86\% mean accuracy on the 42-subject within-subject protocol. The implementation is publicly released, making AMERL the strongest evaluation-protocol-controlled comparator for our results.
 
@@ -65,7 +65,20 @@ Kang, Li, Gong, Zeng, Yan, Bian, Siok and Wang \cite{Kang2025HyperMML} proposed 
 
 EEG-MoCE \cite{Anon2026EEGMoCE} introduces a hyperbolic mixture-of-curvature experts framework, in which each modality is assigned to a Lorentz-manifold expert and the fusion weights are learned in a curvature-aware manner. EEG-MoCE reports 75.88\% mean accuracy on EAV.
 
-None of these three prior methods tests missing-modality robustness, demonstrates a zero-EEG inference path, or performs cross-modal coherence analysis. The present thesis is, to our knowledge, the first work to combine all three of these capabilities with a trimodal fusion architecture on EAV. Quantitative comparison of all four methods is presented in Chapter~6.
+None of these three prior methods tests missing-modality robustness, demonstrates a zero-EEG inference path, reports a subject-independent evaluation, or states how its reported epoch or checkpoint was selected. The present thesis addresses all four. Quantitative comparison is presented in Chapter~\ref{chap:within}.
+
+\subsection*{Evaluation protocol, participant variability and selection bias}
+\label{sec:lit_evaluation}
+
+Three strands of methodological literature bear directly on the final phase of this thesis.
+
+\textbf{Within-subject and subject-independent evaluation.} Affective computing distinguishes subject-dependent evaluation, in which a model is trained and tested on data from the same person, from subject-independent evaluation, in which the test person is absent from training. The two answer different questions: the first measures how well a system recognises emotion in someone it has already studied, the second how well it generalises to a new user. All three trimodal fusion methods published on EAV report the first. Because physiological and behavioural signals vary strongly between people, the gap between the two protocols is a property of the corpus and the representation, and it has to be measured rather than assumed.
+
+\textbf{Adapting to a new domain through normalisation statistics.} Li et al.\ \cite{Li2016AdaBN} showed that a network trained on one domain can be adapted to another, without labels, by recomputing its batch-normalisation statistics on the target domain. The per-participant standardisation of Chapter~\ref{chap:calibration} applies the same idea at the level of the individual: each participant is treated as a domain, and their feature statistics are re-estimated from a short unlabelled recording.
+
+\textbf{Selection bias and circular analysis.} Choosing a model, a hyperparameter or a stopping epoch on the same data that are then used to report its performance biases the reported figure upward. Varma and Simon \cite{Varma2006CVBias} quantified this bias for cross-validated error estimates, Cawley and Talbot \cite{Cawley2010Overfitting} showed that over-fitting the model-selection criterion can be as damaging as over-fitting the model itself, and Kriegeskorte et al.\ \cite{Kriegeskorte2009DoubleDipping} documented the same ``double dipping'' across neuroscience. Chapter~\ref{chap:audit} measures the size of this bias in the Pre-Thesis~II results.
+
+\textbf{Confidence calibration.} Guo et al.\ \cite{Guo2017Calibration} showed that modern neural networks are often over-confident and that a single temperature parameter fitted on held-out data largely corrects this. Confidence-weighted fusion rules implicitly assume calibrated confidences; Chapter~\ref{chap:calibration} tests that assumption on unseen participants.
 
 \section{Summary of Key Findings}
 \subsection{Decoding the EEG--Facial Expression Paradox}

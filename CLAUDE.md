@@ -46,6 +46,7 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 ## P3 status (2026-09-21) — Final Defence phase
 
 ### ⚡ RESUME HERE (24 Sep 2026) — deadline end of Fri 26 Sep
+- **24 Sep: report draft COMPLETE in [LateX_P3/](LateX_P3/)** (P2 source in LateX/ untouched). `\pend{}` = value awaiting a Drive CSV; `python verify_latex.py` counts them. Figures via `make_p3_figures.py` (Colab).
 - **Read [P3_PLAN.md](P3_PLAN.md) first**: checklist, full progress log with every result, and the `RESUME HERE` next step. Deliverables: full thesis-length P3 report (absorbs P2 + Ch 7) + slides. User does all the work; teammates unavailable.
 - **All experiments DONE and frozen.** Scripts: `calibration_study.py`, `identity_probe.py`, `p2_leakfree.py`, `label_sequence_check.py`, `suppression_audit.py`, `p3_stats.py` (all tables → `results/p3_stats/`), `dynamic_late_fusion.py`.
 - **Headline:** per-participant feature standardisation (`--subject-norm`) lifts cross-subject learned fusion 58→74–76% vs naive 62.2%; holds with 20 unlabeled disjoint calibration clips (~100 s); neutral-only calibration fails; skewed needs 50–100. Identity linearly decodable (vision 100%, audio 97%, EEG 82%) → chance after calibration.

@@ -412,7 +412,14 @@ EEG    & 81.6\%  & 2.4\% & 35.4\% & 45.5\% & $+10.1$ pp & 40/42 \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:identity_probe} supports the hypothesis on both counts. Under the
+\begin{figure}[htbp]
+\centering
+\IfFileExists{images/fig_identity_probe.png}{\includegraphics[width=0.95\textwidth]{images/fig_identity_probe.png}}{\fbox{\parbox{0.9\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_identity\_probe.png} (run \texttt{make\_p3\_figures.py}).}}}
+\caption{Linear probes before and after per-participant calibration. Left: participant identity (chance 2.4\%, dotted). Right: emotion on unseen participants (chance 20\%).}
+\label{fig:identity_probe}
+\end{figure}
+
+Table~\ref{tab:identity_probe} and Figure~\ref{fig:identity_probe} support the hypothesis on both counts. Under the
 default normalisation, participant identity is linearly decodable from every
 modality: essentially perfectly from vision (100.0\%), almost perfectly from audio
 (97.0\%), and at 81.6\% from EEG, against a chance rate of 2.4\%. After calibration

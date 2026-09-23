@@ -29,15 +29,15 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 - [x] S 1h — Cross-subject suppression matrix. DoD: 5x5 + base rate, compared with within-subject.
 
 ### Block 3 (13:00–19:00) — consolidate the calibration contribution
-- [ ] M 1.5h — Head-vs-head Holm tests under subject-norm (concat vs dropout vs cross_attn). DoD: can state whether attention is tied with or below concat.
-- [ ] M 1h — Calibration-curve figure data (accuracy vs n, random + skewed, with CIs). DoD: CSV/plot ready for Ch 7.
-- [ ] M 1.5h — Catch-up slot for anything from Blocks 1–2 that slipped.
-- [ ] N 2h — Few-shot (labeled vs unlabeled calibration) ONLY if ahead of schedule.
+- [x] M 1.5h — Head-vs-head Holm tests under subject-norm (concat vs dropout vs cross_attn). DoD: can state whether attention is tied with or below concat.
+- [x] M 1h — Calibration-curve figure data (accuracy vs n, random + skewed, with CIs). DoD: CSV/plot ready for Ch 7.
+- [x] M 1.5h — Catch-up slot for anything from Blocks 1–2 that slipped.
+- [~] N 2h — Few-shot — CUT (24 Sep).
 
 ### Block 4 (20:00–23:30) — statistics
-- [ ] M 1h — Holm correction across every reported test family. DoD: every p in Ch 6/7 has an adjusted p.
-- [ ] S 1h — Bootstrap 95% CIs for headline means.
-- [ ] N 1.5h — Per-class cross-subject recall/F1.
+- [x] M 1h — Holm correction across every reported test family. DoD: every p in Ch 6/7 has an adjusted p.
+- [x] S 1h — Bootstrap 95% CIs for headline means.
+- [x] N 1.5h — Per-class cross-subject recall/F1.
 
 **Checkpoint 24 (go/no-go):** all experiments done. If anything slipped, apply the fallback.
 **Sleep ~00:00–06:00**
@@ -45,17 +45,17 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 ## Thu 25 Sep — EXPERIMENT FREEZE 12:00 (only bug reruns before noon)
 
 ### Block 5 (06:30–12:00) — report restructure
-- [ ] M 1h — Create `LateX_P3/` from the P2 source; P3 title page and date. DoD: compiles.
-- [ ] M 2.5h — Correct Ch 3/4/6 for leak-free numbers; remove "best-test-epoch"; soften SOTA claim. DoD: no test-selected number remains.
-- [ ] M 1.5h — Suppression-audit section, framed per the verdict. DoD: section written.
+- [x] M 1h — Create `LateX_P3/` from the P2 source; P3 title page and date. DoD: compiles.
+- [x] M 2.5h — Correct Ch 3/4/6 for leak-free numbers; remove "best-test-epoch"; soften SOTA claim. DoD: no test-selected number remains.
+- [x] M 1.5h — Suppression-audit section, framed per the verdict. DoD: section written.
 
 ### Block 6 (13:00–19:00) — new content
-- [ ] M 2.5h — Ch 7 additions: identity audit, subject-norm, dynamic/calibrated fusion negative results.
-- [ ] M 2.5h — New chapter: unsupervised subject calibration (method, protocol, calibration curve, robustness, discussion).
-- [ ] M 1h — Abstract, contributions, RQ8, limitations, conclusion. DoD: consistent with every table.
+- [x] M 2.5h — Ch 7 additions: identity audit, subject-norm, dynamic/calibrated fusion negative results.
+- [x] M 2.5h — New chapter: unsupervised subject calibration (method, protocol, calibration curve, robustness, discussion).
+- [x] M 1h — Abstract, contributions, RQ8, limitations, conclusion. DoD: consistent with every table.
 
 ### Block 7 (20:00–23:30) — figures + slides draft
-- [ ] M 2h — Figures: within-vs-cross per-modality; calibration curve; identity probe; suppression vs EEG confusion.
+- [~] M 2h — Figures: `make_p3_figures.py` written + smoke-tested locally; needs one Colab run (Drive data).
 - [ ] M 1.5h — Slide skeleton (15–18 slides) with figures.
 
 **Checkpoint 25:** full draft compiles, `verify_latex.py` passes, slide skeleton exists.
@@ -155,13 +155,22 @@ suppression matrix → drop the skewed condition from the report (keep random) �
 - 24 Sep: ALL EXPERIMENTS DONE. Decision: freeze experiments now; few-shot cut.
 
 ## >>> RESUME HERE <<<
-Next = Thu Block 5: build LateX_P3/ (full thesis absorbing P2 + Ch7), then
-correct Ch3/4/6 (leak-free numbers, remove best-test-epoch + SOTA claim),
-reframe suppression as an AUDIT chapter (recommended full chapter; user to
-confirm), add calibration chapter + identity probe, rewrite abstract/RQs/
-contributions/limitations. Title claim: learned fusion (incl. attention) beats
-averaging once calibrated; dropout makes attention competitive; concat strongest.
-Two P3 contributions: (1) unsupervised subject calibration, (2) integrity audit.
+Report draft COMPLETE in `LateX_P3/` (24 Sep, ahead of plan; ~33k words, 11 chapters:
+Intro, Lit, Req, Method, Impl, Within (leak-free), Cross-subject, Calibration (NEW),
+Integrity Audit (NEW, full chapter), Engineering (C19-C24 added), Conclusion).
+`python verify_latex.py` -> PASS refs/cites; 17 `\pend{}` markers remain (red in PDF).
+
+Next = ONE Colab session:
+  git pull; python p3_stats.py; python make_p3_figures.py
+  then paste p3_stats/cross_default_tests.csv + calib_effect_tests.csv (resolves 16
+  \pend), download the 4 PNGs from results/p3_figures/ into LateX_P3/images/, and
+  give per-fold Stage A wall-clock times (1 \pend in Ch 7 Sec 2).
+Then: compile on Overleaf, read-through, slides (Block 7/9).
+User to check: 9 new bib entries (Wilcoxon1945, Holm1979, Efron1993, Varma2006,
+Kriegeskorte2009, Cawley2010, Phipson2010, Li2016AdaBN, Guo2017); approval.tex
+still says "Summer, 2026" semester; final_full "designated primary a priori" wording.
+Open option (user decides): calibrated-naive control (per-participant logit
+centering before averaging) = Limitation 3; cheap, CPU, cached logits.
 
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
@@ -170,3 +179,14 @@ replacing few-shot as the headline. Few-shot drops to N: "labeled vs unlabeled
 calibration" comparison, only if Wed Block 3 has room.
 Block 1 order now: calibration_study (M) -> identity probe (M) -> alignment (M)
 -> leak-free rerun (M).
+
+- 24 Sep: REPORT DRAFTED in LateX_P3/. Found + fixed two more report/code
+  mismatches: (1) Ch4 described softhard dropout as 4 sub-batches (4N); code
+  zeroes one random modality per sample w.p. 0.5 and rescales 3/n_active (C20);
+  (2) P2 claimed Sadness->Neutral was the pilot's most consistent pattern; the
+  contemporaneous log says Calmness->Neutral (removed). Pilot EEG 24.4->50.6
+  now attributed to bug fixes AND 50->350 epochs. Encoders confirmed NOT
+  test-selected (EAV trainers keep final epoch) -> per-modality + naive stand.
+  New local tests (p3_stats robustness family): dropout_av > cross_attn +2.42pp
+  p_holm .0043; dropout_full - dropout_av +0.63 n.s.
+

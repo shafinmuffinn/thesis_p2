@@ -1,11 +1,11 @@
 \section{Design Overview and Pipeline Structure}
-The methodology is structured as three sequential, independently cached stages. Each stage produces artefacts---compressed NumPy archives, PyTorch state dictionaries, or CSV result files---that are written to persistent storage before the next stage begins. This design allows the pipeline to be safely interrupted and resumed, a practical requirement given the Colab Pro session time limits described in Chapter 5.
+The methodology is structured as three sequential, independently cached stages. Each stage produces artefacts---compressed NumPy archives, PyTorch state dictionaries, or CSV result files---that are written to persistent storage before the next stage begins. This design allows the pipeline to be safely interrupted and resumed, a practical requirement given the Colab Pro session time limits described in Chapter~\ref{chap:implementation}.
 
 \textbf{Stage A---Per-Modality Encoder Training.} Three independent deep learning models---one for each modality---are fine-tuned or trained from scratch on each subject's EAV data. After training, two artefacts are saved per subject-modality pair: the encoder's full state dictionary, for later feature extraction; and the per-trial test-set logits and labels, for the naive late-fusion baseline and the suppression matrix analysis. These artefacts are the raw material for all downstream stages.
 
 \textbf{Stage B---Pre-Classifier Feature Extraction.} Each trained encoder is loaded, the final classification head is removed, and the penultimate-layer representation is extracted for every training and test trial. The result is three feature matrices per subject---audio, vision, and EEG---each of shape $(N_{\mathrm{trials}}, d_{\mathrm{feature}})$. These cached features allow Stage C to iterate on fusion hyperparameters without re-running the computationally expensive per-modality encoders.
 
-\textbf{Stage C---Fusion Training and Evaluation.} The \texttt{TrimodalAttentionFusion} module is trained on the cached per-subject features. For each subject, the best-test-epoch fusion logits are retained, and per-subject accuracy is appended to a CSV result file. Separately, the per-modality Stage A logits are used to compute a naive late-fusion baseline with no training required and to populate the coherence suppression matrix.
+\textbf{Stage C---Fusion Training and Evaluation.} The \texttt{TrimodalAttentionFusion} module is trained on the cached per-subject features for a fixed schedule and evaluated once, at the final epoch; no epoch is chosen by looking at test data (Section~\ref{sec:audit_selection} explains why this differs from the Pre-Thesis~II protocol). Per-subject accuracy is appended to a CSV result file. Separately, the per-modality Stage A logits are used to compute a naive late-fusion baseline with no training required and to populate the coherence suppression matrix.
 
 \begin{figure}[htbp]
 \centering
@@ -41,7 +41,7 @@ Raw EAV data is pre-processed into pickle files by the scripts in the official E
 \label{sec:split_alignment}
 The EAV repository provides a stratified split via \texttt{EAV\_datasplit.py}. The split parameter \texttt{h\_idx=56} divides each subject's trials so that 70\% (280 trials) are assigned to training and 30\% (120 trials) to testing, stratified by class. With five emotion categories, this yields 56 training trials per class and 24 testing trials per class, for totals of 280 and 120 respectively. The complete per-subject inventory is therefore 400 trials across all five classes.
 
-A necessary condition for the suppression matrix analysis is that the audio, vision, and EEG test splits are drawn from the same set of 120 trials, so that comparing per-modality predictions on a given trial index is comparing predictions on the same interaction. A heuristic alignment check was performed on all 42 subjects before the suppression analysis was executed: for every subject, the per-class trial count in the test split was extracted for each of the three modalities and compared. The result for all 42 subjects was a uniform count of 80 trials per class per modality in the combined train+test set ($80\times5=400$ per subject), with the stratified test split producing exactly 24 trials per class (120 total) for each modality. The heuristic passes unanimously, providing the necessary condition for valid cross-modal trial comparison. Table \ref{tab:eav_dataset_structure} summarises the full corpus structure.
+A necessary condition for the suppression matrix analysis is that the audio, vision, and EEG test splits are drawn from the same set of 120 trials, so that comparing per-modality predictions on a given trial index is comparing predictions on the same interaction. A heuristic alignment check was performed on all 42 subjects before the suppression analysis was executed: for every subject, the per-class trial count in the test split was extracted for each of the three modalities and compared. The result for all 42 subjects was a uniform count of 80 trials per class per modality in the combined train+test set ($80\times5=400$ per subject), with the stratified test split producing exactly 24 trials per class (120 total) for each modality. The heuristic passes unanimously, providing the necessary condition for valid cross-modal trial comparison. It is not a sufficient condition: a stronger element-wise comparison of the label sequences, carried out in the final phase, shows that the sequences are sorted into class blocks, so trial correspondence within a class cannot be verified from the released data (Section~\ref{sec:audit_alignment}). Table \ref{tab:eav_dataset_structure} summarises the full corpus structure.
 
 \begin{table}[htbp]
 \centering
@@ -244,6 +244,7 @@ Optimiser & AdamW \\
 Learning rate & $10^{-3}$ \\
 LR schedule & Cosine annealing \\
 Batch size & 32 \\
+Epoch selection & None; the final epoch is evaluated \\
 \hline
 \end{tabular}
 \end{table}
@@ -295,17 +296,30 @@ The diagonal is zero by construction because EEG agreement with the external con
 
 To verify that matrix patterns are cross-population rather than driven by individual outlier subjects, the per-subject contribution to each cell is extracted. A pattern is classified as cross-population if it is contributed by more than five distinct subjects and no single subject contributes more than 40\% of the cell total.
 
+Cross-population consistency does not establish that a pattern reflects the participants rather than the classifiers. In a cue-based corpus a matrix cell can be populated entirely by one classifier's systematic errors. Each cell is therefore compared against a class-conditional permutation null: within each participant and each cued class, EEG's (prediction, confidence) pairs are shuffled across trials while audio and vision are held fixed, and the matrix is recomputed 2{,}000 times. The shuffle preserves each classifier's per-class confusion exactly and destroys only the trial-level pairing between the modalities, so a cell that exceeds the null carries coupling between audio-visual and EEG predictions that independent errors cannot produce. Two-sided permutation $p$-values are Holm-corrected over the 20 off-diagonal cells. Results are in Section~\ref{sec:audit_suppression}.
+
 \section{Modality Dropout and Robustness}
 \label{sec:modality_dropout}
 To enable meaningful inference when EEG is unavailable---as will be the case in any deployment scenario without an EEG headset---the fusion module is trained under a modality-dropout regime adapted from Chumachenko, Iosifidis and Gabbouj \cite{Chumachenko2022SelfAttention}.
 
-The softhard dropout scheme expands each training batch into four sub-batches:
-\begin{itemize}
-    \item \textbf{Full modality:} audio, vision, and EEG features are used as-is.
-    \item \textbf{Audio-only:} vision and EEG features are replaced by zero tensors.
-    \item \textbf{Vision-only:} audio and EEG features are replaced by zero tensors.
-    \item \textbf{Audio-visual:} EEG features are replaced by a zero tensor, while audio and vision are used as-is.
-\end{itemize}
-For each subject's training batch of $N$ trials, this produces an expanded batch of $4N$ trials. The labels are replicated identically across all four sub-batches. The module is therefore trained on examples in which any combination of the three modalities may be absent, forcing the learned projections and attention weights to develop predictions robust to modality absence.
+The softhard scheme operates on each training sample independently. With probability $p = 0.5$ the sample is left intact; otherwise one of the three modalities is chosen uniformly at random and its feature vector is replaced by zeros. The surviving modalities are then rescaled by $3/n_{\mathrm{active}}$, where $n_{\mathrm{active}}$ is the number of modalities present, so that the expected input energy per sample does not depend on how many modalities were dropped:
+\begin{equation}
+  \tilde{x}^{(m)} = \frac{3\, k_m}{\sum_{m'} k_{m'}}\, x^{(m)}, \qquad k_m \in \{0, 1\},
+\end{equation}
+where $k_m = 0$ for the dropped modality and 1 otherwise. Labels are unchanged, and the batch size is unchanged. Over training, the module therefore sees each sample with all three modalities about half the time and with each two-modality subset about one-sixth of the time, forcing each modality token to carry evidence that is useful on its own. Dropout is applied only during training. (The Pre-Thesis~II report described a different scheme, in which every batch was expanded into four sub-batches; that description did not match the implementation that produced its results, and is corrected here; see Section~\ref{sec:p3_challenges}, C20.)
 
-The audio-visual sub-batch, with EEG zeroed and audio and vision present, is the most important for the demonstration use case, in which EEG is unavailable but audio and video are present. The module learns to produce accurate predictions under this condition specifically, in addition to maintaining accuracy on the full-modality case. After modality-dropout training, the zero-EEG inference accuracy across all 42 subjects is the primary robustness metric. This metric is the number reported on the demonstration overlay as ``EEG unavailable; prediction uses audio + video only.''
+The configuration that matters most for deployment is the audio-visual one: EEG zeroed, audio and vision present, as it would be for any user without an EEG headset. Because EEG is dropped in about one-sixth of training samples, the module is trained on this condition directly while still being trained on complete inputs. After training, accuracy with EEG zeroed at inference is the primary robustness metric (Sections~\ref{sec:modality_dropout_results} and~\ref{sec:cal_ranking}).
+
+\section{Evaluation Protocols}
+\label{sec:evaluation_protocols}
+
+Three evaluation protocols are used in this report, each answering a different question.
+
+\textbf{Within-subject} (Chapter~\ref{chap:within}). Each participant's 400 trials are split 280/120 by the EAV repository's stratified split; encoders and fusion heads are trained on a participant's 280 training trials and tested on their 120 test trials; results are averaged over the 42 participants. This answers how well the system recognises emotion in a person it has already studied, and it is the protocol used by all prior trimodal fusion work on EAV.
+
+\textbf{Cross-subject} (Chapter~\ref{chap:crosssubject}). Five-fold subject-wise cross-validation: every participant is held out exactly once, and the encoders and fusion heads for that fold are trained only on the other participants, with epoch selection on three inner-validation participants. This answers how well the system recognises emotion in a person it has never seen.
+
+\textbf{Cross-subject with calibration} (Chapter~\ref{chap:calibration}). As cross-subject, but each participant's fusion features are standardised with statistics from a short unlabelled recording of that participant. This answers how well the system works for a new user who provides a brief enrolment session without labels.
+
+Under every protocol, the reported epoch of every trained model is chosen without reference to the data it is scored on.
+

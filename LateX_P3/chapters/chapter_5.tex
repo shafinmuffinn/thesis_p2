@@ -109,6 +109,32 @@ A small post-hoc inference script, \texttt{compute\_per\_modality\_logits.py}, w
 
 The consumer scripts \texttt{day3\_late\_fusion.py} and \texttt{suppression\_matrix.py} were updated to accept a configurable \texttt{LOGITS\_SUBDIR} environment variable, defaulting to \texttt{day5\_per\_modality\_logits}, so they can be pointed at either the 42-subject rollout logits or the earlier 3-subject pilot logits without code changes.
 
+\section{Final-Phase Analysis Scripts}
+\label{sec:p3_scripts}
+
+The analyses of Chapters~\ref{chap:crosssubject}--\ref{chap:audit} are produced by the scripts in Table~\ref{tab:p3_scripts}. Apart from \texttt{cv\_pipeline.py}, each runs on cached features, logits or trained heads and needs no encoder training; \texttt{p3\_stats.py} generates every corrected test, confidence interval and figure table cited in those chapters from the result CSVs.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Final-phase scripts, their outputs, and where the results are reported.}
+\label{tab:p3_scripts}
+\begin{tabular}{p{3.9cm} p{5.0cm} p{4.6cm}}
+\hline
+\textbf{Script} & \textbf{Output} & \textbf{Reported in} \\
+\hline
+\texttt{cv\_pipeline.py} & \texttt{cv5\_fusion.csv}, \texttt{cv5\_fusion\_subjectnorm.csv} & Chapters~\ref{chap:crosssubject}, \ref{chap:calibration} \\
+\texttt{calibration\_study.py} & \texttt{calibration\_study.csv} & Section~\ref{sec:cal_disjoint} \\
+\texttt{identity\_probe.py} & \texttt{identity\_probe.csv} & Section~\ref{sec:cal_mechanism} \\
+\texttt{dynamic\_late\_fusion.py} & console summary & Section~\ref{sec:cal_negative} \\
+\texttt{p2\_leakfree.py} & \texttt{p2\_leakfree.csv} & Chapter~\ref{chap:within}, Section~\ref{sec:audit_selection} \\
+\texttt{label\_sequence\_check.py} & console summary & Section~\ref{sec:audit_alignment} \\
+\texttt{suppression\_audit.py} & console summary & Section~\ref{sec:audit_suppression} \\
+\texttt{p3\_stats.py} & \texttt{p3\_stats/*.csv} & All corrected tests and CIs \\
+\hline
+\end{tabular}
+\end{table}
+
 \section{Software Environment}
 All experiments were run with the software stack shown in Table \ref{tab:software_environment}.
 
@@ -147,4 +173,4 @@ Complete reproducibility of the reported results requires the following:
     \item A GPU with at least 16 GB VRAM for Stage A, since AST and ViT exceed 8 GB peak VRAM on batch size 8.
 \end{enumerate}
 
-Minor numerical differences between runs are expected due to non-deterministic CUDA operations. Results reported in Chapter 6 are from a single deterministic forward pass on the saved logits, so logit-derived metrics such as accuracy and suppression matrix counts are fully deterministic given the saved artefacts.
+Minor numerical differences between runs are expected due to non-deterministic CUDA operations. Results reported in Chapters~\ref{chap:within}--\ref{chap:audit} are from a single deterministic forward pass on the saved logits, so logit-derived metrics such as accuracy and suppression matrix counts are fully deterministic given the saved artefacts.

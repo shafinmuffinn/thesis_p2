@@ -41,7 +41,7 @@ Mean & 61.1\% & 75.6\% & 50.6\% \\
 \end{tabular}
 \end{table}
 
-The EEG improvement of 26.2 percentage points---from 24.4\% at chance level to 50.6\%---following the bug fixes is the most consequential result of the pilot phase. A fusion model with a near-random EEG branch would have been functionally a bimodal audio-visual model with noise added; the value of the EEG modality as a signal of internal state is conditional on the encoder producing genuinely above-chance predictions.
+The EEG improvement of 26.2 percentage points---from 24.4\% at chance level to 50.6\%---is the most consequential result of the pilot phase. It combines the bug fixes with the move from 50 to 350 training epochs, and the two cannot be separated from these runs; a 50-epoch check after the softmax fix alone moved Subject~1 by only about one point. A fusion model with a near-random EEG branch would have been functionally a bimodal audio-visual model with noise added; the value of the EEG modality as a signal of internal state is conditional on the encoder producing genuinely above-chance predictions.
 
 The 42-subject rollout confirmed and strengthened these pilot results. Mean per-modality accuracies across all 42 subjects are reported in Table \ref{tab:full_rollout_accuracy}, together with the EAV paper's published baselines for comparison.
 
