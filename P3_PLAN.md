@@ -1,0 +1,98 @@
+# P3 Plan — submission end of Fri 26 Sep 2026
+
+New contribution: **few-shot personalisation of dynamic fusion** (#4), on top of
+an integrity package (#1 leak-free rerun, #2 suppression audit, #7 stats) and the
+identity audit (#3). Report = full thesis-length P3 document absorbing P2 + Ch 7.
+
+Clock times are suggestions; shift blocks, keep the order and the freezes.
+Priority: M = must, S = should, N = nice. DoD = definition of done.
+
+---
+
+## Tue 23 Sep — Block 1 (now → ~23:30, ~5h) — integrity quick wins
+
+### Experiments
+- [ ] M 0.5h — Run `--subject-norm` Stage C, all folds. DoD: `cv5_fusion_subjectnorm.csv` exists; summary table sent.
+- [ ] M 0.5h — Alignment sequence check. DoD: per subject, does the EEG label sequence equal the audio and vision label sequences element-wise; mismatch count.
+- [ ] M 1.5h — Identity probe. DoD: subject-ID decoding accuracy per modality, fold-norm vs subject-norm features, with chance level.
+- [ ] M 2h — Leak-free within-subject rerun (validation split from the 280 train trials; cross_attn, concat_mlp, dropout). DoD: `p2_leakfree.csv` for 42 subjects.
+
+**Checkpoint 23:** subject-norm, identity, alignment results in hand; leak-free rerun done or running.
+**Sleep ~00:00–06:00**
+
+## Wed 24 Sep
+
+### Block 2 (06:30–12:00) — defensive analyses
+- [ ] M 1h — Leak-free results. DoD: corrected within-subject table, delta vs P2 per variant, Wilcoxon vs naive.
+- [ ] M 3h — Suppression audit. DoD: (a) % of events where AV consensus == cued label; (b) suppression matrix vs EEG confusion on AV-correct trials; (c) permutation null; one-paragraph verdict.
+- [ ] S 1h — Cross-subject suppression matrix. DoD: 5x5 + base rate, compared with within-subject.
+
+### Block 3 (13:00–19:00) — few-shot personalisation (the new contribution)
+- [ ] M 2h — Implement + synthetic tests. DoD: tests pass on CPU.
+- [ ] M 2h — Run k in {2, 5, 10}/class x 3 seeds x {naive, concat_mlp, cross_attn, dropout}, all folds. DoD: `fewshot.csv`.
+- [ ] M 1h — Analysis. DoD: accuracy-vs-k table, Wilcoxon adapted-head vs naive per k, one-line verdict.
+
+### Block 4 (20:00–23:30) — statistics
+- [ ] M 1h — Holm correction across every reported test family. DoD: every p in Ch 6/7 has an adjusted p.
+- [ ] S 1h — Bootstrap 95% CIs for headline means.
+- [ ] N 1.5h — Per-class cross-subject recall/F1.
+
+**Checkpoint 24 (go/no-go):** all experiments done. If few-shot isn't, apply the fallback.
+**Sleep ~00:00–06:00**
+
+## Thu 25 Sep — EXPERIMENT FREEZE 12:00 (only bug reruns before noon)
+
+### Block 5 (06:30–12:00) — report restructure
+- [ ] M 1h — Create `LateX_P3/` from the P2 source; P3 title page and date. DoD: compiles.
+- [ ] M 2.5h — Correct Ch 3/4/6 for leak-free numbers; remove "best-test-epoch"; soften SOTA claim. DoD: no test-selected number remains.
+- [ ] M 1.5h — Suppression-audit section, framed per the verdict. DoD: section written.
+
+### Block 6 (13:00–19:00) — new content
+- [ ] M 2.5h — Ch 7 additions: identity audit, subject-norm, dynamic/calibrated fusion negative results.
+- [ ] M 2.5h — New chapter: few-shot personalisation (method, protocol, results, discussion).
+- [ ] M 1h — Abstract, contributions, RQ8, limitations, conclusion. DoD: consistent with every table.
+
+### Block 7 (20:00–23:30) — figures + slides draft
+- [ ] M 2h — Figures: within-vs-cross per-modality; few-shot curve; identity probe; suppression vs EEG confusion.
+- [ ] M 1.5h — Slide skeleton (15–18 slides) with figures.
+
+**Checkpoint 25:** full draft compiles, `verify_latex.py` passes, slide skeleton exists.
+**Sleep ~00:00–06:00**
+
+## Fri 26 Sep — FINAL BUFFER: writing, slides, rehearsal only. No experiments.
+
+### Block 8 (06:30–12:00) — finish report
+- [ ] M 2h — Trace every number to a CSV.
+- [ ] M 1.5h — Engineering-challenges chapter, captions, bibliography.
+- [ ] M 1h — Final compile, ToC, overfull boxes.
+
+### Block 9 (13:00–18:00) — slides + defence prep
+- [ ] M 2.5h — Finish slides + speaker notes.
+- [ ] M 2h — Mock Q&A: 15 hard questions with 2–3 line answers.
+
+### Block 10 (18:00–22:00) — rehearse + submit
+- [ ] M 1.5h — Two timed run-throughs.
+- [ ] M 1h — Package and submit; git tag.
+- [ ] 1.5h slack.
+
+---
+
+## Fallback
+
+**Cut in this order:** per-class analysis → bootstrap CIs (keep Holm) → cross-subject
+suppression matrix → shrink few-shot to k=5, 1 seed, cross_attn + naive only → slide polish.
+
+**Never cut:** leak-free rerun (#1), suppression audit (a)+(b), identity probe, Holm.
+
+**Minimum viable contribution:** first subject-independent evaluation on EAV
++ identity probe showing the vision collapse is identity-driven
++ corrected leak-free within-subject baseline. Few-shot is the upgrade on top.
+
+**Triggers:**
+- Leak-free rerun not done by Wed 12:00 → run cross_attn + dropout only.
+- Few-shot not running by Wed 19:00 → fall back to the MVP.
+- Suppression audit shows matrix ≈ EEG confusion → reframe honestly as EEG error
+  structure; do not drop the section.
+
+## Progress log
+- 23 Sep: plan set.
