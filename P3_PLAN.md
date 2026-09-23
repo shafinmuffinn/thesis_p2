@@ -12,7 +12,7 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 ## Tue 23 Sep — Block 1 (now → ~23:30, ~5h) — integrity quick wins
 
 ### Experiments
-- [ ] M 0.5h — Run `--subject-norm` Stage C, all folds. DoD: `cv5_fusion_subjectnorm.csv` exists; summary table sent.
+- [x] M 0.5h — Run `--subject-norm` Stage C, all folds. DoD: `cv5_fusion_subjectnorm.csv` exists; summary table sent.
 - [ ] M 0.5h — Alignment sequence check. DoD: per subject, does the EEG label sequence equal the audio and vision label sequences element-wise; mismatch count.
 - [ ] M 1.5h — Identity probe. DoD: subject-ID decoding accuracy per modality, fold-norm vs subject-norm features, with chance level.
 - [ ] M 2h — Leak-free within-subject rerun (validation split from the 280 train trials; cross_attn, concat_mlp, dropout). DoD: `p2_leakfree.csv` for 42 subjects.
@@ -101,8 +101,16 @@ suppression matrix → shrink few-shot to k=5, 1 seed, cross_attn + naive only �
   at 62.2. Title-rescuing IF it survives: (1) transductive on scored trials,
   (2) hidden class-balance prior. `calibration_study.py` written to test both.
 
-## REPLAN (pending confirmation)
-If the calibration study holds up, the new contribution becomes **unsupervised
+- 23 Sep: calibration_study DONE. Gain holds with DISJOINT calibration: random
+  20 clips (~100 s, no labels) -> heads 72.5-73.8% vs naive 62.1 (+10-12pp, all
+  Holm-sig); saturates ~50 clips. Neutral-only calibration FAILS (worse/tied).
+  Skewed needs ~50-100 clips. skewed n=200 cell unreliable (rejected draws) --
+  exclude/flag. concat_mlp still edges attention variants by ~0.8-1.9pp.
+- 23 Sep: identity_probe.py written; below-chance artefact caught and fixed
+  (normalisation stats now from probe-train half only).
+
+## REPLAN (CONFIRMED by result)
+The new contribution is **unsupervised
 subject calibration** (calibration-size curve + neutral-only + skewed robustness),
 replacing few-shot as the headline. Few-shot drops to S: "labeled vs unlabeled
 calibration" comparison, only if Wed Block 3 has room.
