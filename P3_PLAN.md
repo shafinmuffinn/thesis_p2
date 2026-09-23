@@ -155,22 +155,23 @@ suppression matrix â†’ drop the skewed condition from the report (keep random) â
 - 24 Sep: ALL EXPERIMENTS DONE. Decision: freeze experiments now; few-shot cut.
 
 ## >>> RESUME HERE <<<
-Report draft COMPLETE in `LateX_P3/` (24 Sep, ahead of plan; ~33k words, 11 chapters:
-Intro, Lit, Req, Method, Impl, Within (leak-free), Cross-subject, Calibration (NEW),
-Integrity Audit (NEW, full chapter), Engineering (C19-C24 added), Conclusion).
-`python verify_latex.py` -> PASS refs/cites; 17 `\pend{}` markers remain (red in PDF).
-
-Next = ONE Colab session:
-  git pull; python p3_stats.py; python make_p3_figures.py
-  then paste p3_stats/cross_default_tests.csv + calib_effect_tests.csv (resolves 16
-  \pend), download the 4 PNGs from results/p3_figures/ into LateX_P3/images/, and
-  give per-fold Stage A wall-clock times (1 \pend in Ch 7 Sec 2).
-Then: compile on Overleaf, read-through, slides (Block 7/9).
-User to check: 9 new bib entries (Wilcoxon1945, Holm1979, Efron1993, Varma2006,
-Kriegeskorte2009, Cawley2010, Phipson2010, Li2016AdaBN, Guo2017); approval.tex
-still says "Summer, 2026" semester; final_full "designated primary a priori" wording.
-Open option (user decides): calibrated-naive control (per-participant logit
-centering before averaging) = Limitation 3; cheap, CPU, cached logits.
+24 Sep: scripts for A/B/D/E written, CPU-tested on fake data, pushed (designs
+pre-specified in docstrings BEFORE results). Next = ONE Colab session:
+  git pull  (banner >= 7413f15)
+  python calibrated_naive.py --selftest && python calibrated_naive.py            # A
+  python cv_pipeline.py --stages C --subject-norm-only vision|audio|eeg          # D x3
+  python attention_analysis.py --selftest && python attention_analysis.py       # E
+  python fewshot_calibration.py                                                  # B
+  python p3_stats.py ; python make_p3_figures.py
+Paste: calibrated_naive output, p3_stats sections 1/3/7, attention output,
+fewshot output; download 4 PNGs -> LateX_P3/images/.
+Then: write A/B/D/E into Ch 8 (A: tab:cal_main row + sec:cal_fairness + Lim 3;
+D: mechanism table; E: new section "Is the attention dynamic?" + cite Abnar &
+Zuidema 2020, Jain & Wallace 2019; B: new section "Labelled vs unlabelled").
+Cutoffs: B dropped if no sane output by Fri 25 Sep 16:00; ALL experiments
+frozen Fri 25 Sep 20:00; Sat 26 = Turnitin rewrite of Ch1-5 + C1-C13 + Ch6
+6.1-6.2, Overleaf compile, slides (8-10), submit by 23:00.
+Supervisor not yet told about the retraction -> tell them.
 
 ## Decisions 24 Sep (user answers)
 - Turnitin compares against OUR OWN P2; ~20% similarity allowed INCLUDING references
