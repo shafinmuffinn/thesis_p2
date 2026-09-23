@@ -3,11 +3,17 @@ fusion heads lose to parameter-free softmax averaging, and that the loss is
 concentrated in the vision modality. This chapter asks whether that failure is a
 property of the fusion operator or of the representation it receives. The answer is
 the principal new contribution of this thesis: a label-free, per-participant
-normalisation of the fusion input, computed from a short unlabelled calibration
-recording, lifts every learned fusion head from below naive late fusion to 11--14
-percentage points above it, and the effect holds with as few as twenty calibration
-clips. Section~\ref{sec:cal_mechanism} shows that what the normalisation removes is
-linearly decodable participant identity.
+calibration computed from a short unlabelled recording lifts every learned fusion head
+from below naive late fusion to 11--14 percentage points above it, and the effect holds
+with as few as twenty calibration clips. A control then locates the gain: calibrating
+the averaging baseline in the same way lifts it by a similar amount, so that without
+labels no learned head is significantly better than calibrated averaging
+(Section~\ref{sec:cal_baseline}). What the learned heads can do that averaging cannot
+is examined in Section~\ref{sec:cal_labelled}, where the calibration clips are also
+labelled. Section~\ref{sec:cal_mechanism} shows that calibration removes linearly
+decodable participant identity, mostly from vision, and
+Section~\ref{sec:cal_attention} asks whether the attention module's weighting is
+dynamic.
 
 \section{Hypothesis}
 \label{sec:cal_hypothesis}
@@ -103,7 +109,9 @@ Every learned head now exceeds naive late fusion, by 11.4 to 13.8 percentage poi
 on at least 40 of the 42 participants. The same heads scored 57.6--58.8\% under the
 default normalisation (Table~\ref{tab:cs_main}); calibration therefore moves each of
 them by 15.7 to 17.1 points, from 3--4.5 points \emph{below} naive late fusion to
-11--14 points above it. Table~\ref{tab:cal_effect} gives the per-head change.
+11--14 points above it. Table~\ref{tab:cal_effect} gives the per-head change. The
+comparison in Table~\ref{tab:cal_main} is with \emph{uncalibrated} averaging;
+Section~\ref{sec:cal_baseline} repeats it against averaging calibrated in the same way.
 
 \begin{table}[htbp]
 \centering
@@ -184,6 +192,9 @@ recovers more than half of that gap for the same attention architecture (1.15 of
 the within-subject leak-free result of Chapter~\ref{chap:within}, where dropout and
 concat-MLP were tied and both beat plain cross-attention: under both protocols,
 training discipline matters more than the choice of fusion operator.
+
+These are differences between learned heads. None of them differs significantly from
+averaging once averaging is also calibrated (Section~\ref{sec:cal_baseline}).
 
 The last row bears on robustness. Under calibration, zeroing EEG at inference costs
 the dropout model 1.45 points, a significant loss; under the default normalisation
@@ -371,6 +382,190 @@ calibration session should contain roughly 50 unlabelled clips, about four minut
 of \emph{varied} emotional content---for example, an unscripted conversation---rather
 than an instructed neutral baseline.
 
+\section{Calibrating the Averaging Baseline}
+\label{sec:cal_baseline}
+
+Naive late fusion averages the encoders' output probabilities and never reads the
+fusion features, so the calibration of Equation~\ref{eq:subjnorm} does not reach it.
+Every comparison above is therefore between \emph{calibrated} learned fusion and
+\emph{uncalibrated} averaging, which cannot say whether the gain comes from learned
+fusion or from calibration. This section gives averaging the analogous label-free
+correction (\texttt{calibrated\_naive.py}); the design was fixed and committed before
+it was run.
+
+\textbf{Method.} For each held-out participant and each modality, the participant's
+mean logit vector over the calibration clips is subtracted from every logit before the
+softmaxes are averaged (\emph{centring}, the pre-specified primary version). A
+participant-specific identity offset in the features propagates into each encoder's
+output as a participant-specific bias toward some classes, and centring removes it.
+A secondary version also divides by the per-class standard deviation (\emph{z-scoring}),
+and the best single modality, audio, is centred in the same way as a reference. The
+calibration clips are the same random draws as in Section~\ref{sec:cal_disjoint}, and
+the learned heads are re-scored on the same evaluation trials, reproducing
+Tables~\ref{tab:cal_main} and~\ref{tab:cal_random} exactly.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Calibrated averaging against the calibrated learned heads, 42 participants.
+All columns except the first use the same calibration clips and are scored on the
+same trials.}
+\label{tab:cal_baseline}
+\begin{tabular}{lccccccc}
+\hline
+& \multicolumn{3}{c}{\textbf{Averaging}} & & \multicolumn{3}{c}{\textbf{Learned heads (calibrated)}} \\
+\textbf{Calibration} & \textbf{Uncal.} & \textbf{Centred} & \textbf{Z-scored} & \textbf{Audio, centred} & \textbf{Concat} & \textbf{Dropout} & \textbf{Attention} \\
+\hline
+All 400 clips    & 62.15\% & 74.87\% & 75.88\% & 65.54\% & 75.93\% & 75.02\% & 73.87\% \\
+20 random clips  & 62.14\% & 72.95\% & 72.52\% & 63.89\% & 73.84\% & 73.04\% & 72.48\% \\
+50 random clips  & 62.17\% & 73.98\% & 74.60\% & 64.84\% & 75.08\% & 74.25\% & 73.42\% \\
+\hline
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:cal_baseline} and the tests of Table~\ref{tab:cal_baseline_tests} give
+three results.
+
+\textbf{Calibration helps averaging as much as it helps the learned heads.} Centring
+raises averaging by 10.8 to 12.7 points (39--40 of 42 participants improved), and
+z-scoring by 10.4 to 13.7 points, all significant after correction.
+
+\textbf{Without labels, no learned head beats calibrated averaging.} Against centred
+averaging, the calibrated heads differ by $-1.30$ to $+1.10$ points at every
+calibration size, and no difference is significant ($p_{\mathrm{Holm}} \ge 0.495$).
+The 11--14-point advantage of Table~\ref{tab:cal_main} is therefore an effect of
+calibration, not of learned fusion.
+
+\textbf{Fusing the modalities still matters.} Calibrated averaging exceeds the
+calibrated best single modality by about nine points at every calibration size (41--42
+of 42 participants), so the three modalities remain complementary once calibrated; it
+is the choice of fusion operator that ceases to matter.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Paired Wilcoxon tests for Table~\ref{tab:cal_baseline}; Holm correction over
+all 21 tests of the pre-specified family.}
+\label{tab:cal_baseline_tests}
+\begin{tabular}{llccc}
+\hline
+\textbf{Calibration} & \textbf{Comparison} & \textbf{$\Delta$} & \textbf{A better} & \textbf{$p_{\mathrm{Holm}}$} \\
+\hline
+All 400 & Centred vs uncalibrated averaging & $+12.71$ pp & 40/42 & $3.4\times10^{-7}$ \\
+        & Concat-MLP vs centred averaging    & $+1.07$ pp  & 24/42 & 0.72 \\
+        & Dropout vs centred averaging       & $+0.15$ pp  & 22/42 & 1.0 \\
+        & Attention vs centred averaging     & $-1.00$ pp  & 16/42 & 0.72 \\
+        & Dropout (AV) vs centred averaging  & $-1.30$ pp  & 14/42 & 0.50 \\
+        & Centred averaging vs centred audio & $+9.33$ pp  & 42/42 & $3.1\times10^{-7}$ \\
+\hline
+20 clips & Centred vs uncalibrated averaging & $+10.81$ pp & 39/42 & $1.7\times10^{-10}$ \\
+         & Concat-MLP vs centred averaging    & $+0.88$ pp  & 23/42 & 1.0 \\
+         & Dropout vs centred averaging       & $+0.08$ pp  & 26/42 & 1.0 \\
+         & Attention vs centred averaging     & $-0.48$ pp  & 21/42 & 1.0 \\
+         & Dropout (AV) vs centred averaging  & $-1.12$ pp  & 18/42 & 0.72 \\
+         & Centred averaging vs centred audio & $+9.07$ pp  & 41/42 & $3.1\times10^{-7}$ \\
+\hline
+50 clips & Centred vs uncalibrated averaging & $+11.81$ pp & 40/42 & $1.3\times10^{-10}$ \\
+         & Concat-MLP vs centred averaging    & $+1.10$ pp  & 24/42 & 0.72 \\
+         & Dropout vs centred averaging       & $+0.27$ pp  & 21/42 & 1.0 \\
+         & Attention vs centred averaging     & $-0.55$ pp  & 18/42 & 1.0 \\
+         & Dropout (AV) vs centred averaging  & $-1.13$ pp  & 17/42 & 0.72 \\
+         & Centred averaging vs centred audio & $+9.14$ pp  & 41/42 & $3.1\times10^{-7}$ \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Labelled Versus Unlabelled Calibration}
+\label{sec:cal_labelled}
+
+A learned head can do one thing averaging cannot: it can be fine-tuned. If a new user
+labels the calibration clips---``this is me angry, this is me calm''---the head can be
+adapted to them. \texttt{fewshot\_calibration.py} measures what that adds, with the
+design fixed before it was run.
+
+\textbf{Protocol.} For each held-out participant, $k \in \{1, 2, 4, 10\}$ clips per
+class are drawn ($n = 5k$ = 5, 10, 20 or 50 clips; five seeds). The same clips are used
+twice: \emph{unlabelled}, to compute the normalisation statistics only, and
+\emph{labelled}, where the calibrated head is additionally fine-tuned on them (all
+parameters; AdamW; weight decay $10^{-4}$; full batch). The learning rate and number of
+steps are chosen per fold and per head from a four-point grid ($10^{-4}$ or $10^{-3}$;
+10 or 50 steps) on the three inner-validation participants only. Both modes are scored
+on the participant's remaining $400 - n$ clips.
+
+Because these draws are class-balanced by construction, the unlabelled accuracies are
+slightly higher than those of the random draws in Table~\ref{tab:cal_random} (for
+example 74.95\% against 73.84\% for concat-MLP at $n = 20$), consistent with the
+sensitivity to class composition found in Section~\ref{sec:cal_robustness}.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Unlabelled (U) and labelled (L) calibration on the same clips, mean over 42
+participants. Uncalibrated naive late fusion on the same evaluation trials is 62.2\%
+throughout.}
+\label{tab:cal_labelled}
+\begin{tabular}{rrcccccccc}
+\hline
+& & \multicolumn{2}{c}{\textbf{Concat-MLP}} & \multicolumn{2}{c}{\textbf{Dropout}} & \multicolumn{2}{c}{\textbf{Attention}} & \multicolumn{2}{c}{\textbf{Dropout (AV)}} \\
+\textbf{$k$} & \textbf{$n$} & \textbf{U} & \textbf{L} & \textbf{U} & \textbf{L} & \textbf{U} & \textbf{L} & \textbf{U} & \textbf{L} \\
+\hline
+1  & 5  & 71.23 & 72.31 & 70.90 & 72.35 & 70.51 & 70.90 & 69.60 & 70.71 \\
+2  & 10 & 73.82 & 75.42 & 73.37 & 76.00 & 72.51 & 74.11 & 72.00 & 74.49 \\
+4  & 20 & 74.95 & 77.87 & 74.11 & 78.55 & 73.40 & 76.66 & 72.70 & 77.11 \\
+10 & 50 & 75.42 & 81.00 & 74.57 & 81.94 & 73.79 & 80.71 & 73.17 & 80.36 \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Labels help, and the help grows with the number of clips.} Fine-tuning on the
+labelled clips improves every head at every size except attention at $n = 5$
+(Table~\ref{tab:cal_labelled_tests}). The gain is 0.4--1.5 points with one clip per
+class, 2.9--4.4 points with four, and 5.6--7.4 points with ten, when every one of the 42
+participants improves under every head. At $n = 50$ the labelled heads reach
+80.4--81.9\% on participants absent from training. This is numerically above the best
+leak-free within-subject result (79.96\%, Chapter~\ref{chap:within}), although the two
+protocols differ: the within-subject heads saw 280 labelled trials of the participant
+and no one else, the few-shot heads 50 labelled clips of the participant after training
+on 30--31 other people.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Labelled minus unlabelled calibration on the same clips (percentage points),
+paired Wilcoxon over 42 participants; $^{*}$ significant after Holm correction over the
+16 tests. Participants improved in parentheses.}
+\label{tab:cal_labelled_tests}
+\begin{tabular}{rrcccc}
+\hline
+\textbf{$k$} & \textbf{$n$} & \textbf{Concat-MLP} & \textbf{Dropout} & \textbf{Attention} & \textbf{Dropout (AV)} \\
+\hline
+1  & 5  & $+1.08^{*}$ (36) & $+1.46^{*}$ (37) & $+0.38$ (28)     & $+1.11^{*}$ (35) \\
+2  & 10 & $+1.60^{*}$ (36) & $+2.63^{*}$ (36) & $+1.59^{*}$ (30) & $+2.50^{*}$ (36) \\
+4  & 20 & $+2.92^{*}$ (37) & $+4.44^{*}$ (42) & $+3.26^{*}$ (36) & $+4.41^{*}$ (42) \\
+10 & 50 & $+5.58^{*}$ (42) & $+7.38^{*}$ (42) & $+6.92^{*}$ (42) & $+7.20^{*}$ (42) \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{With labels, attention trained with modality dropout gains the most.} Its
+labelled gain exceeds concat-MLP's at every size, and at $n = 50$ it is the most
+accurate head (81.94\% against 81.00\%). A comparison of the two labelled heads was not
+part of the pre-specified design; added afterwards and reported as exploratory, it gives
+$+0.94$ points at $n = 50$ ($p_{\mathrm{Holm}} = 0.027$ over the four sizes, 26 of 42
+participants) and no significant difference at smaller $n$. Without labels the order is
+reversed (concat-MLP ahead; Section~\ref{sec:cal_ranking}).
+
+\textbf{The comparison that decides the claim.} The gains above are measured against
+the same heads without labels. Averaging can use labels too, in simpler ways: a
+per-participant correction of its class biases, or of its modality weights, fitted on
+the same labelled clips. \texttt{labelled\_naive.py} fits both, with their regularisation
+chosen on the inner-validation participants exactly as the heads' fine-tuning settings
+were, on identical clips. \pend{labelled averaging results: table + tests + one-paragraph verdict}
+
+\textbf{Limitation.} The larger step count was chosen in 13 of the 15 fold-and-head
+cases, so the grid may have stopped short of the best fine-tuning budget and the
+labelled gains may be underestimated.
+
 \section{Mechanism: What Calibration Removes}
 \label{sec:cal_mechanism}
 
@@ -449,6 +644,117 @@ encoder's emotion boundary is drawn partly along identity directions, so a new f
 lands on the wrong side of it. Probe B is consistent with this: vision gains the most
 from removing identity because its emotion signal depended on identity the most.
 
+\subsection{Whose Identity? Calibrating One Modality at a Time}
+\label{sec:cal_per_modality}
+
+The probes show identity in every modality; they do not show whose identity causes the
+cross-subject failure. To test this directly, the fusion heads were retrained with
+per-participant standardisation applied to \emph{one} modality at a time, the other two
+keeping the default per-fold statistics (\texttt{cv\_pipeline.py
+--subject-norm-only}; same folds, recipe and inner-validation participants).
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Cross-subject accuracy when only one modality is calibrated, 42 participants.
+In parentheses: the share of the full calibration gain (default to all three
+calibrated) that the single-modality run recovers.}
+\label{tab:cal_per_modality}
+\begin{tabular}{lccccc}
+\hline
+\textbf{Head} & \textbf{Default} & \textbf{Audio only} & \textbf{Vision only} & \textbf{EEG only} & \textbf{All three} \\
+\hline
+Concat-MLP              & 58.80\% & 63.62\% (28\%) & 70.37\% (68\%) & 61.33\% (15\%)  & 75.93\% \\
+Modality dropout (full) & 58.77\% & 62.90\% (25\%) & 69.58\% (67\%) & 58.98\% (1\%)   & 75.02\% \\
+Cross-attention         & 57.61\% & 62.39\% (29\%) & 68.98\% (70\%) & 59.49\% (12\%)  & 73.87\% \\
+Modality dropout (AV)   & 57.89\% & 62.58\% (30\%) & 69.24\% (72\%) & 56.23\% ($-$11\%) & 73.57\% \\
+\hline
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:cal_per_modality} answers the question. Calibrating vision alone
+recovers 67--72\% of the full gain ($+10.8$ to $+11.6$ points, 38--40 of 42
+participants, all $p_{\mathrm{Holm}} \le 1.2\times10^{-6}$ over the 12 tests).
+Calibrating audio alone recovers 25--30\% ($+4.1$ to $+4.8$ points, all significant,
+$p_{\mathrm{Holm}} \le 0.0072$). Calibrating EEG alone recovers little: only
+concat-MLP's $+2.5$ points is significant ($p_{\mathrm{Holm}} = 0.046$), and the other
+three heads range from $-1.7$ to $+1.9$ points without significance. The shares sum to
+91--111\%, so the three contributions are roughly additive.
+
+Two conclusions follow. Vision's participant offset is the main cause of the
+cross-subject failure, in line with vision's 33-point collapse and its 100\% identity
+decodability. And audio's offset matters too: although the audio encoder transferred at
+parity on its own (Chapter~\ref{chap:crosssubject}), its identity offset costs the
+fusion heads four to five points---it does not mislead audio's own classifier, but it
+misleads a head that reads the audio features alongside the others.
+
+\section{Is the Attention Dynamic?}
+\label{sec:cal_attention}
+
+The thesis title describes the fusion as dynamic and attention-based. The attention
+module computes, for every trial, how its three modality tokens are mixed, so whether
+that mixing actually varies from trial to trial---and whether it varies sensibly---can
+be measured directly (\texttt{attention\_analysis.py}; design fixed before it was run).
+
+\textbf{Measure.} For each held-out trial, the weight given to each modality is its
+share of the fused representation under attention rollout \cite{Abnar2020Rollout}
+through both encoder layers: attention averaged over heads, the residual connection
+modelled as $0.5A + 0.5I$ per layer, and the three token weights averaged because the
+fused vector is the mean of the three output tokens. The three weights sum to one. The
+layer-by-layer re-computation is checked against the model's own logits. Both attention
+heads (plain and dropout-trained) are analysed under the default and the calibrated
+protocol.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Modality weights under attention rollout on held-out participants: mean over
+participants with 95\% bootstrap CI, and the mean within-participant standard deviation
+across trials (SD).}
+\label{tab:attention_weights}
+\begin{tabular}{llcccccc}
+\hline
+\textbf{Protocol} & \textbf{Head} & \textbf{Audio} & \textbf{Vision} & \textbf{EEG} & \textbf{SD$_a$} & \textbf{SD$_v$} & \textbf{SD$_e$} \\
+\hline
+Default    & Attention & 0.381 [0.368, 0.395] & 0.412 [0.399, 0.424] & 0.207 [0.199, 0.215] & 0.075 & 0.068 & 0.053 \\
+Default    & Dropout   & 0.362 [0.352, 0.373] & 0.415 [0.403, 0.426] & 0.223 [0.215, 0.231] & 0.089 & 0.087 & 0.052 \\
+Calibrated & Attention & 0.403 [0.395, 0.411] & 0.402 [0.390, 0.415] & 0.195 [0.188, 0.202] & 0.090 & 0.086 & 0.055 \\
+Calibrated & Dropout   & 0.403 [0.395, 0.411] & 0.410 [0.402, 0.419] & 0.187 [0.179, 0.195] & 0.110 & 0.106 & 0.054 \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{The weighting is dynamic.} Within a participant, each modality's weight varies
+from trial to trial with a standard deviation of 0.05--0.11, against mean weights of
+0.19--0.42 (Table~\ref{tab:attention_weights}); a fixed-weight fusion would give zero.
+EEG receives roughly half the weight of audio or vision under every condition.
+
+\textbf{It is partly sensible.} Within each participant, the weight on a modality was
+compared between trials on which that modality's own encoder is right and trials on
+which it is wrong (Holm over 12 tests). Attention gives audio more weight when audio is
+right under every condition ($+0.015$ to $+0.027$; 34--38 of 42 participants; all
+$p_{\mathrm{Holm}} \le 6\times10^{-4}$). For vision the same holds only for the
+dropout-trained head under default normalisation ($+0.018$, $p_{\mathrm{Holm}} = 0.003$).
+For EEG it is reversed under every condition: attention gives EEG \emph{less} weight on
+trials where EEG is right ($-0.012$ to $-0.016$; positive for only 5--10 of 42
+participants; all $p_{\mathrm{Holm}} \le 1.7\times10^{-4}$). The attention module does
+not recognise when EEG is reliable.
+
+\textbf{Calibration moves weight from EEG to audio.} From default to calibrated, audio's
+weight rises (plain attention $+0.022$, $p_{\mathrm{Holm}} = 0.013$; dropout $+0.041$,
+$p_{\mathrm{Holm}} = 3\times10^{-7}$), EEG's falls ($-0.012$, $p_{\mathrm{Holm}} =
+0.015$; $-0.036$, $p_{\mathrm{Holm}} = 5\times10^{-12}$, lower for 41 of 42
+participants), and vision's does not change significantly (Holm over 6 tests). Taken
+with Table~\ref{tab:cal_per_modality}, calibration helps vision by making the vision
+token informative, not by making attention avoid it.
+
+\textbf{Caveats.} The differences in Q3 and Q4 are small in weight units (0.01--0.04);
+rollout is a heuristic summary of information flow; and attention weights describe how
+tokens are mixed, not a complete explanation of the decision
+\cite{Jain2019AttentionNot}. The finding that matters for the title is the combination:
+the attention \emph{is} dynamic, but without labels its dynamic weighting does not make
+it more accurate than calibrated averaging (Section~\ref{sec:cal_baseline}).
+
 \section{Alternatives That Do Not Work}
 \label{sec:cal_negative}
 
@@ -512,16 +818,10 @@ which attention is one---inputs from which the participant has been removed.
 \section{Fairness of the Comparison and Limitations}
 \label{sec:cal_fairness}
 
-\textbf{The baseline was not calibrated.} Naive late fusion combines encoder logits,
-which Equation~\ref{eq:subjnorm} does not touch, so the 11--14-point margin is the
-margin of calibrated learned fusion over \emph{uncalibrated} averaging. An analogous
-per-participant correction of the encoder logits was not evaluated, and it is the most
-direct open question this chapter leaves. The calibrated linear probes of
-Table~\ref{tab:identity_probe} give a partial reference point: the best calibrated
-single-modality probe (audio, 67.8\%) is 8.1 points below the calibrated concat-MLP
-head (75.9\%). That gap is between means from different model classes and was not
-tested as a paired comparison, but it indicates that calibrated fusion is doing more
-than calibrating its best input.
+\textbf{The baseline was calibrated too.} Section~\ref{sec:cal_baseline} gives
+averaging the analogous label-free correction and finds it as accurate as every
+calibrated learned head. The margin of Table~\ref{tab:cal_main} is therefore attributed
+to calibration, not to learned fusion, throughout this report.
 
 \textbf{Enrolment is required.} The method needs a short unlabelled recording from
 each new user before it can normalise their predictions. This is weaker than one-shot
@@ -540,16 +840,18 @@ disjoint study.
 \section{Answer to RQ8}
 \label{sec:cal_rq}
 
-\textbf{RQ8---Subject calibration:} Yes. A label-free, per-participant standardisation
-of the fusion features lifts every learned fusion head from 57.6--58.8\% to
-73.6--75.9\% on unseen participants, 11.4--13.8 points above naive late fusion
-($p_{\mathrm{Holm}} < 2\times10^{-7}$, at least 40 of 42 participants improved). The
-effect needs about 20 unlabelled calibration clips (100 seconds) to be significant for
-every head and saturates at about 50; the session must contain varied emotional
-content, since Neutral-only calibration fails and strongly unbalanced sessions need
-50--100 clips. The mechanism is the removal of linearly decodable participant
-identity, which falls from 82--100\% to chance. Under calibration the learned heads
-separate significantly---concat-MLP $>$ modality dropout $>$ cross-attention---so
-attention-based fusion beats averaging decisively once identity is removed, but it is
-not the strongest operator, and modality-dropout training is what makes it
-competitive.
+\textbf{RQ8---Subject calibration:} Yes, with an important qualification about what it
+restores. A label-free, per-participant calibration computed from a short unlabelled
+recording lifts every learned fusion head from 57.6--58.8\% to 73.6--75.9\% on unseen
+participants, 11.4--13.8 points above uncalibrated averaging; about 20 clips (100
+seconds) suffice for a significant gain for every head, the effect saturates at about
+50, and the recording must contain varied emotional content. The mechanism is the
+removal of participant identity, mainly from vision (about 70\% of the gain) and
+secondly from audio. But calibrating the averaging baseline in the same way makes it
+just as accurate (74.9\%): without labels, calibration is the contribution and the
+choice of fusion operator does not matter. The learned heads' advantage is that they
+can use labels---fine-tuning on ten labelled clips per class lifts them to
+80.4--81.9\%, with dropout-trained attention the most accurate---and
+\pend{verdict of labelled averaging vs labelled heads}. The attention weighting is
+dynamic from trial to trial, favours audio when audio is right, and does not recognise
+when EEG is right.
