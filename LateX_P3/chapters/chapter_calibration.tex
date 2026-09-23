@@ -109,16 +109,17 @@ them by 15.7 to 17.1 points, from 3--4.5 points \emph{below} naive late fusion t
 \centering
 \small
 \caption{Effect of calibration on each learned head (same encoders, same folds, same
-training recipe; only the normalisation differs).}
+training recipe; only the normalisation differs). Every one of the 42 participants
+improves under every head; Holm correction over the four tests.}
 \label{tab:cal_effect}
 \begin{tabular}{lcccc}
 \hline
 \textbf{Head} & \textbf{Default} & \textbf{Calibrated} & \textbf{Change} & \textbf{$p_{\mathrm{Holm}}$} \\
 \hline
-Concat-MLP              & 58.80\% & 75.93\% & $+17.13$ pp & \pend{calib\_effect\_tests.csv} \\
-Modality dropout (full) & 58.77\% & 75.02\% & $+16.25$ pp & \pend{calib\_effect\_tests.csv} \\
-Cross-attention         & 57.61\% & 73.87\% & $+16.26$ pp & \pend{calib\_effect\_tests.csv} \\
-Modality dropout (AV)   & 57.89\% & 73.57\% & $+15.68$ pp & \pend{calib\_effect\_tests.csv} \\
+Concat-MLP              & 58.80\% & 75.93\% & $+17.13$ pp & $6.6\times10^{-8}$ \\
+Modality dropout (full) & 58.77\% & 75.02\% & $+16.24$ pp & $6.6\times10^{-8}$ \\
+Cross-attention         & 57.61\% & 73.87\% & $+16.26$ pp & $6.6\times10^{-8}$ \\
+Modality dropout (AV)   & 57.89\% & 73.57\% & $+15.68$ pp & $6.6\times10^{-8}$ \\
 \hline
 \end{tabular}
 \end{table}

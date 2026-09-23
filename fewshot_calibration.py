@@ -208,6 +208,24 @@ def summarise(rows: list[dict]) -> None:
         print(f"  k={k:2d} (n={5 * k:2d}) {v:13s} {d:+7.2f}pp  p={p0:.3g}  p_holm={p:.3g}"
               f"{' *' if p < 0.05 else ''}  ({better}/{n})")
 
+    # EXPLORATORY (added after the results were seen; not part of the
+    # pre-specified family): with labels, does the attention model trained with
+    # modality dropout overtake concat-MLP? Holm over the 4 k values.
+    tests, labels = [], []
+    for k in K_GRID:
+        A, B = per[(k, "labelled", "dropout_full")], per[(k, "labelled", "concat_mlp")]
+        subs = sorted(set(A) & set(B))
+        a, b = np.array([A[s] for s in subs]), np.array([B[s] for s in subs])
+        tests.append(float(wilcoxon(a, b).pvalue))
+        labels.append((k, (a - b).mean() * 100, int((a > b).sum()), len(subs)))
+    order = np.argsort(tests); m = len(tests); adj = [0.0] * m; r = 0.0
+    for rank, i in enumerate(order):
+        r = max(r, min(1.0, (m - rank) * tests[i])); adj[i] = r
+    print("\nEXPLORATORY: labelled dropout_full minus labelled concat_mlp (Holm over 4)")
+    for (k, d, better, n), p0, p in zip(labels, tests, adj):
+        print(f"  k={k:2d} (n={5 * k:2d}) {d:+7.2f}pp  p={p0:.3g}  p_holm={p:.3g}"
+              f"{' *' if p < 0.05 else ''}  ({better}/{n})")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,

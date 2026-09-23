@@ -235,27 +235,27 @@ supplementary comparison outside that family.}
 \hline
 \textbf{Method A} & \textbf{Method B} & \textbf{$\bar{\Delta}$} & \textbf{$p$} & \textbf{$p_{\mathrm{Holm}}$} \\
 \hline
-Naive late fusion & Cross-attention        & $+4.54$ pp & $0.0003$ & \pend{Holm} \\
-Naive late fusion & Modality dropout (full)& $+3.38$ pp & $0.0026$ & \pend{Holm} \\
-Naive late fusion & Concat-MLP             & $+3.35$ pp & $0.0015$ & \pend{Holm} \\
-Naive late fusion & Modality dropout (AV)  & $+4.26$ pp & \pend{p} & \pend{Holm} \\
-Naive late fusion & Audio only             & $+4.64$ pp & $0.0003$ & \pend{Holm} \\
+Naive late fusion & Cross-attention        & $+4.54$ pp & $0.0003$ & $0.0027$ \\
+Naive late fusion & Modality dropout (full)& $+3.38$ pp & $0.0026$ & $0.015$ \\
+Naive late fusion & Concat-MLP             & $+3.35$ pp & $0.0015$ & $0.011$ \\
+Naive late fusion & Modality dropout (AV)  & $+4.27$ pp & $0.0007$ & $0.0059$ \\
+Naive late fusion & Audio only             & $+4.64$ pp & $0.0003$ & $0.0027$ \\
 \hline
-Modality dropout (full) & Concat-MLP       & $-0.03$ pp & $0.717$ & \pend{Holm} \\
-Modality dropout (full) & Cross-attention   & $+1.16$ pp & $0.141$ & \pend{Holm} \\
-Concat-MLP & Cross-attention               & $+1.19$ pp & $0.204$ & \pend{Holm} \\
-Modality dropout (full) & Modality dropout (AV) & $+0.89$ pp & $0.090$ & \pend{Holm} \\
+Modality dropout (full) & Concat-MLP       & $-0.03$ pp & $0.717$ & $0.72$ \\
+Modality dropout (full) & Cross-attention   & $+1.16$ pp & $0.141$ & $0.43$ \\
+Concat-MLP & Cross-attention               & $+1.19$ pp & $0.204$ & $0.43$ \\
+Modality dropout (full) & Modality dropout (AV) & $+0.89$ pp & $0.090$ & $0.43$ \\
 Modality dropout (full) & Audio only       & $+1.26$ pp & $0.250$ & --- \\
 \hline
-Audio only & Vision only                   & $+16.33$ pp & $<0.0001$ & \pend{Holm} \\
-Vision only & EEG only                     & $+3.01$ pp & $0.086$ & \pend{Holm} \\
+Audio only & Vision only                   & $+16.33$ pp & $<0.0001$ & $<0.0001$ \\
+Vision only & EEG only                     & $+3.01$ pp & $0.086$ & $0.43$ \\
 \hline
 \end{tabular}
 \end{table}
 
 Two results stand out. First, \textbf{naive late fusion significantly outperforms
 every learned fusion method} under the subject-independent protocol, by margins of
-3.35 to 4.54 percentage points (uncorrected $p \le 0.0026$; \pend{confirm all survive Holm}).
+3.35 to 4.54 percentage points, all significant after Holm correction ($p_{\mathrm{Holm}} \le 0.015$).
 Within-subject, the leak-free learned heads were at best marginally better than the
 parameter-free baseline (Section~\ref{sec:learned_fusion_results}); on unseen
 participants they are clearly worse.
