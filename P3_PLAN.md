@@ -16,7 +16,7 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 - [x] M 0.5h — Run `--subject-norm` Stage C, all folds. DoD: `cv5_fusion_subjectnorm.csv` exists; summary table sent.
 - [ ] M 0.5h — Alignment sequence check. DoD: per subject, does the EEG label sequence equal the audio and vision label sequences element-wise; mismatch count.
 - [x] M 1.5h — Identity probe. DoD: subject-ID decoding accuracy per modality, fold-norm vs subject-norm features, with chance level.
-- [ ] M 2h — Leak-free within-subject rerun (validation split from the 280 train trials; cross_attn, concat_mlp, dropout). DoD: `p2_leakfree.csv` for 42 subjects.
+- [x] M 2h — Leak-free within-subject rerun (validation split from the 280 train trials; cross_attn, concat_mlp, dropout). DoD: `p2_leakfree.csv` for 42 subjects.
 
 **Checkpoint 23:** subject-norm, identity, alignment results in hand; leak-free rerun done or running.
 **Sleep ~00:00–06:00**
@@ -24,7 +24,7 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 ## Wed 24 Sep
 
 ### Block 2 (06:30–12:00) — defensive analyses
-- [ ] M 1h — Leak-free results. DoD: corrected within-subject table, delta vs P2 per variant, Wilcoxon vs naive.
+- [x] M 1h — Leak-free results. DoD: corrected within-subject table, delta vs P2 per variant, Wilcoxon vs naive.
 - [ ] M 3h — Suppression audit. DoD: (a) % of events where AV consensus == cued label; (b) suppression matrix vs EEG confusion on AV-correct trials; (c) permutation null; one-paragraph verdict.
 - [ ] S 1h — Cross-subject suppression matrix. DoD: 5x5 + base rate, compared with within-subject.
 
@@ -118,6 +118,17 @@ suppression matrix → drop the skewed condition from the report (keep random) �
   the emotion decision; vision most entangled. "Removed to chance" is partly
   by construction (z-scoring removes 1st/2nd moments) -- say so.
 - 23 Sep: p2_leakfree.py + label_sequence_check.py written and tested.
+
+- 24 Sep: p2_leakfree DONE. Rerun reproduces P2 (naive 77.48; test-selected
+  concat 81.65 vs P2 81.7). Selection inflation 5.3-7.5pp. Leak-free (final_full,
+  primary, justified a priori: no selection, full 280): concat 79.96, dropout
+  79.80, dropout_av 79.17, cross_attn 76.75, naive 77.48. NO head beats naive
+  after Holm (concat p=0.050, dropout p=0.059). SOTA claim FALLS. Survives:
+  dropout > cross_attn +3.1pp p<1e-4; concat > cross_attn +3.2pp p=0.0017.
+  SPINE: learned fusion beats averaging only with enough data AND identity-free
+  features (within: tied; cross raw: -3 to -4.5; cross calibrated: +10 to +14).
+- 24 Sep: suppression_audit.py written; validated (silent on independent
+  errors, detects planted coupling).
 
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
