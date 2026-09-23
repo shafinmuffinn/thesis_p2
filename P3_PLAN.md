@@ -1,6 +1,7 @@
 # P3 Plan — submission end of Fri 26 Sep 2026
 
-New contribution: **few-shot personalisation of dynamic fusion** (#4), on top of
+New contribution: **unsupervised subject calibration for trimodal fusion**
+(replaced few-shot on 23 Sep after calibration_study held up), on top of
 an integrity package (#1 leak-free rerun, #2 suppression audit, #7 stats) and the
 identity audit (#3). Report = full thesis-length P3 document absorbing P2 + Ch 7.
 
@@ -27,17 +28,18 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 - [ ] M 3h — Suppression audit. DoD: (a) % of events where AV consensus == cued label; (b) suppression matrix vs EEG confusion on AV-correct trials; (c) permutation null; one-paragraph verdict.
 - [ ] S 1h — Cross-subject suppression matrix. DoD: 5x5 + base rate, compared with within-subject.
 
-### Block 3 (13:00–19:00) — few-shot personalisation (the new contribution)
-- [ ] M 2h — Implement + synthetic tests. DoD: tests pass on CPU.
-- [ ] M 2h — Run k in {2, 5, 10}/class x 3 seeds x {naive, concat_mlp, cross_attn, dropout}, all folds. DoD: `fewshot.csv`.
-- [ ] M 1h — Analysis. DoD: accuracy-vs-k table, Wilcoxon adapted-head vs naive per k, one-line verdict.
+### Block 3 (13:00–19:00) — consolidate the calibration contribution
+- [ ] M 1.5h — Head-vs-head Holm tests under subject-norm (concat vs dropout vs cross_attn). DoD: can state whether attention is tied with or below concat.
+- [ ] M 1h — Calibration-curve figure data (accuracy vs n, random + skewed, with CIs). DoD: CSV/plot ready for Ch 7.
+- [ ] M 1.5h — Catch-up slot for anything from Blocks 1–2 that slipped.
+- [ ] N 2h — Few-shot (labeled vs unlabeled calibration) ONLY if ahead of schedule.
 
 ### Block 4 (20:00–23:30) — statistics
 - [ ] M 1h — Holm correction across every reported test family. DoD: every p in Ch 6/7 has an adjusted p.
 - [ ] S 1h — Bootstrap 95% CIs for headline means.
 - [ ] N 1.5h — Per-class cross-subject recall/F1.
 
-**Checkpoint 24 (go/no-go):** all experiments done. If few-shot isn't, apply the fallback.
+**Checkpoint 24 (go/no-go):** all experiments done. If anything slipped, apply the fallback.
 **Sleep ~00:00–06:00**
 
 ## Thu 25 Sep — EXPERIMENT FREEZE 12:00 (only bug reruns before noon)
@@ -49,11 +51,11 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 
 ### Block 6 (13:00–19:00) — new content
 - [ ] M 2.5h — Ch 7 additions: identity audit, subject-norm, dynamic/calibrated fusion negative results.
-- [ ] M 2.5h — New chapter: few-shot personalisation (method, protocol, results, discussion).
+- [ ] M 2.5h — New chapter: unsupervised subject calibration (method, protocol, calibration curve, robustness, discussion).
 - [ ] M 1h — Abstract, contributions, RQ8, limitations, conclusion. DoD: consistent with every table.
 
 ### Block 7 (20:00–23:30) — figures + slides draft
-- [ ] M 2h — Figures: within-vs-cross per-modality; few-shot curve; identity probe; suppression vs EEG confusion.
+- [ ] M 2h — Figures: within-vs-cross per-modality; calibration curve; identity probe; suppression vs EEG confusion.
 - [ ] M 1.5h — Slide skeleton (15–18 slides) with figures.
 
 **Checkpoint 25:** full draft compiles, `verify_latex.py` passes, slide skeleton exists.
@@ -80,17 +82,16 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 ## Fallback
 
 **Cut in this order:** per-class analysis → bootstrap CIs (keep Holm) → cross-subject
-suppression matrix → shrink few-shot to k=5, 1 seed, cross_attn + naive only → slide polish.
+suppression matrix → drop the skewed condition from the report (keep random) → slide polish.
 
 **Never cut:** leak-free rerun (#1), suppression audit (a)+(b), identity probe, Holm.
 
 **Minimum viable contribution:** first subject-independent evaluation on EAV
-+ identity probe showing the vision collapse is identity-driven
-+ corrected leak-free within-subject baseline. Few-shot is the upgrade on top.
++ unsupervised subject calibration (20 unlabeled clips, +10-12pp over averaging)
++ identity probe + corrected leak-free within-subject baseline.
 
 **Triggers:**
 - Leak-free rerun not done by Wed 12:00 → run cross_attn + dropout only.
-- Few-shot not running by Wed 19:00 → fall back to the MVP.
 - Suppression audit shows matrix ≈ EEG confusion → reframe honestly as EEG error
   structure; do not drop the section.
 
@@ -112,7 +113,7 @@ suppression matrix → shrink few-shot to k=5, 1 seed, cross_attn + naive only �
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
 subject calibration** (calibration-size curve + neutral-only + skewed robustness),
-replacing few-shot as the headline. Few-shot drops to S: "labeled vs unlabeled
+replacing few-shot as the headline. Few-shot drops to N: "labeled vs unlabeled
 calibration" comparison, only if Wed Block 3 has room.
 Block 1 order now: calibration_study (M) -> identity probe (M) -> alignment (M)
 -> leak-free rerun (M).
