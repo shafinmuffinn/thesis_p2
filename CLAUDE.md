@@ -45,6 +45,13 @@ The full setup cell is documented in the Day 1 chat thread and should be the fir
 
 ## P3 status (2026-09-21) — Final Defence phase
 
+### ⚡ RESUME HERE (24 Sep 2026) — deadline end of Fri 26 Sep
+- **Read [P3_PLAN.md](P3_PLAN.md) first**: checklist, full progress log with every result, and the `RESUME HERE` next step. Deliverables: full thesis-length P3 report (absorbs P2 + Ch 7) + slides. User does all the work; teammates unavailable.
+- **All experiments DONE and frozen.** Scripts: `calibration_study.py`, `identity_probe.py`, `p2_leakfree.py`, `label_sequence_check.py`, `suppression_audit.py`, `p3_stats.py` (all tables → `results/p3_stats/`), `dynamic_late_fusion.py`.
+- **Headline:** per-participant feature standardisation (`--subject-norm`) lifts cross-subject learned fusion 58→74–76% vs naive 62.2%; holds with 20 unlabeled disjoint calibration clips (~100 s); neutral-only calibration fails; skewed needs 50–100. Identity linearly decodable (vision 100%, audio 97%, EEG 82%) → chance after calibration.
+- **Integrity findings:** P2 fusion numbers were test-epoch-selected (+5–7.5 pp inflation; leak-free concat 80.0, dropout 79.8, cross_attn 76.8, naive 77.5; beat-naive is marginal/family-dependent). Suppression matrix = EEG error structure (r=0.99), no cell beats permutation null within-subject. Trial alignment unverified (pickles class-blocked).
+- Superseded: the fold-0 "provisional" lines below.
+
 - **P2 submitted 2026-06-13.** Full 8-chapter LaTeX thesis in [LateX/](LateX/), ~22.4k words, compiles clean (`python verify_latex.py`). P3 resumed 2026-08-27 after a gap spent on another paper. Defence window ~45 days from 2026-08-27; team of 3 with GPU access.
 - **Working log doc** (decisions, bugs, reasoning for report writing): https://claude.ai/code/artifact/d122e14a-0cc5-42e2-993b-bdd72ed53096
 - **EEG device was cancelled (budget).** Does NOT break the thesis: EEG comes from EAV, not our own recording. Chapter 8 already documented primary EEG as conditional on instrumentation and specified the Likert self-report fallback. Cheap consumer headsets (Muse/Ganglion, 4ch) rejected — do not transfer to EAV's 30-channel EEGNet.

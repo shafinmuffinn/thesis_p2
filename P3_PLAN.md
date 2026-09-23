@@ -146,6 +146,23 @@ suppression matrix â†’ drop the skewed condition from the report (keep random) â
 - 24 Sep: p3_stats.py written (all families, Holm, bootstrap CIs, calibration
   curve data, per-class recall).
 
+- 24 Sep: p3_stats DONE (tables in results/p3_stats/). Calibrated cross-subject:
+  concat 75.93 [73.5,78.2], dropout 75.02, cross_attn 73.87, dropout_av 73.57,
+  naive 62.15; all heads > naive +11.4..13.8pp (40-42/42), p_holm<2e-7.
+  Head ranking SIGNIFICANT: concat > dropout (+0.92, p_holm .031) > cross_attn
+  (+1.15, p_holm .006); dropout > dropout_av (+1.45). Per-class: calibration
+  helps Calmness most (concat .365->.618), macro-F1 .582->.758.
+- 24 Sep: ALL EXPERIMENTS DONE. Decision: freeze experiments now; few-shot cut.
+
+## >>> RESUME HERE <<<
+Next = Thu Block 5: build LateX_P3/ (full thesis absorbing P2 + Ch7), then
+correct Ch3/4/6 (leak-free numbers, remove best-test-epoch + SOTA claim),
+reframe suppression as an AUDIT chapter (recommended full chapter; user to
+confirm), add calibration chapter + identity probe, rewrite abstract/RQs/
+contributions/limitations. Title claim: learned fusion (incl. attention) beats
+averaging once calibrated; dropout makes attention competitive; concat strongest.
+Two P3 contributions: (1) unsupervised subject calibration, (2) integrity audit.
+
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
 subject calibration** (calibration-size curve + neutral-only + skewed robustness),
