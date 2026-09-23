@@ -96,3 +96,15 @@ suppression matrix â†’ shrink few-shot to k=5, 1 seed, cross_attn + naive only â
 
 ## Progress log
 - 23 Sep: plan set.
+- 23 Sep: `--subject-norm` run DONE. Learned heads 58-59% -> 74-76% cross-subject
+  (concat 75.9, dropout 75.0, cross_attn 73.9, dropout_av 73.6); naive unchanged
+  at 62.2. Title-rescuing IF it survives: (1) transductive on scored trials,
+  (2) hidden class-balance prior. `calibration_study.py` written to test both.
+
+## REPLAN (pending confirmation)
+If the calibration study holds up, the new contribution becomes **unsupervised
+subject calibration** (calibration-size curve + neutral-only + skewed robustness),
+replacing few-shot as the headline. Few-shot drops to S: "labeled vs unlabeled
+calibration" comparison, only if Wed Block 3 has room.
+Block 1 order now: calibration_study (M) -> identity probe (M) -> alignment (M)
+-> leak-free rerun (M).
