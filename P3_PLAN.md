@@ -14,7 +14,7 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 
 ### Experiments
 - [x] M 0.5h — Run `--subject-norm` Stage C, all folds. DoD: `cv5_fusion_subjectnorm.csv` exists; summary table sent.
-- [ ] M 0.5h — Alignment sequence check. DoD: per subject, does the EEG label sequence equal the audio and vision label sequences element-wise; mismatch count.
+- [x] M 0.5h — Alignment sequence check. DoD: per subject, does the EEG label sequence equal the audio and vision label sequences element-wise; mismatch count.
 - [x] M 1.5h — Identity probe. DoD: subject-ID decoding accuracy per modality, fold-norm vs subject-norm features, with chance level.
 - [x] M 2h — Leak-free within-subject rerun (validation split from the 280 train trials; cross_attn, concat_mlp, dropout). DoD: `p2_leakfree.csv` for 42 subjects.
 
@@ -25,8 +25,8 @@ Priority: M = must, S = should, N = nice. DoD = definition of done.
 
 ### Block 2 (06:30–12:00) — defensive analyses
 - [x] M 1h — Leak-free results. DoD: corrected within-subject table, delta vs P2 per variant, Wilcoxon vs naive.
-- [ ] M 3h — Suppression audit. DoD: (a) % of events where AV consensus == cued label; (b) suppression matrix vs EEG confusion on AV-correct trials; (c) permutation null; one-paragraph verdict.
-- [ ] S 1h — Cross-subject suppression matrix. DoD: 5x5 + base rate, compared with within-subject.
+- [x] M 3h — Suppression audit. DoD: (a) % of events where AV consensus == cued label; (b) suppression matrix vs EEG confusion on AV-correct trials; (c) permutation null; one-paragraph verdict.
+- [x] S 1h — Cross-subject suppression matrix. DoD: 5x5 + base rate, compared with within-subject.
 
 ### Block 3 (13:00–19:00) — consolidate the calibration contribution
 - [ ] M 1.5h — Head-vs-head Holm tests under subject-norm (concat vs dropout vs cross_attn). DoD: can state whether attention is tied with or below concat.
@@ -122,13 +122,29 @@ suppression matrix → drop the skewed condition from the report (keep random) �
 - 24 Sep: p2_leakfree DONE. Rerun reproduces P2 (naive 77.48; test-selected
   concat 81.65 vs P2 81.7). Selection inflation 5.3-7.5pp. Leak-free (final_full,
   primary, justified a priori: no selection, full 280): concat 79.96, dropout
-  79.80, dropout_av 79.17, cross_attn 76.75, naive 77.48. NO head beats naive
-  after Holm (concat p=0.050, dropout p=0.059). SOTA claim FALLS. Survives:
+  79.80, dropout_av 79.17, cross_attn 76.75, naive 77.48. Heads vs naive is
+  FAMILY-DEPENDENT: concat/dropout +2.4pp, p_holm 0.025 (4 primary tests),
+  0.031/0.034 (7-test family), 0.050/0.059 (8-test incl. val_selected).
+  Report as MARGINAL, give both families. (Corrected 24 Sep.) SOTA claim FALLS. Survives:
   dropout > cross_attn +3.1pp p<1e-4; concat > cross_attn +3.2pp p=0.0017.
   SPINE: learned fusion beats averaging only with enough data AND identity-free
   features (within: tied; cross raw: -3 to -4.5; cross calibrated: +10 to +14).
 - 24 Sep: suppression_audit.py written; validated (silent on independent
   errors, detects planted coupling).
+
+- 24 Sep: alignment DONE: 84/84 splits match but 0/84 interleaved (all
+  class-blocked) -> trial correspondence UNVERIFIED.
+- 24 Sep: suppression_audit DONE. Within: reproduces 401 events; matrix vs EEG
+  confident-error matrix r=0.956 (all) / 0.989 (AV-correct); NO cell exceeds
+  the within-class permutation null; total events BELOW null (401 vs 437+/-12,
+  p=0.005) -> modalities MORE coherent than independent errors (also evidence
+  of real shared trial-level structure, not proof of exact alignment). Cross:
+  621 events; Sadness->Neutral 69 vs null 51 (z=+4.5, p_holm=0.01) = only cell
+  exceeding chance anywhere (candidate, not finding); Happiness->Anger below
+  null. P2 headline patterns DO NOT survive -> reframe as methodological
+  contribution (class-conditional permutation null for coherence claims).
+- 24 Sep: p3_stats.py written (all families, Holm, bootstrap CIs, calibration
+  curve data, per-class recall).
 
 ## REPLAN (CONFIRMED by result)
 The new contribution is **unsupervised
