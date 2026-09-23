@@ -159,6 +159,13 @@ def within_section() -> None:
                 + [(f"{a}:final_full", f"{b}:final_full")
                    for a, b in itertools.combinations(HEADS[:3], 2)],
                 by)
+    # Robustness family, kept separate so the 7-test family above is unchanged:
+    # the zero-EEG path against full-modality cross-attention, and the cost of
+    # zeroing EEG in the dropout model.
+    test_family("within_leakfree_robustness",
+                [("dropout_av:final_full", "cross_attn:final_full"),
+                 ("dropout_full:final_full", "dropout_av:final_full")],
+                by)
 
 
 def calibration_curve() -> None:

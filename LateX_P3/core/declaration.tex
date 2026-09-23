@@ -1,0 +1,51 @@
+% Following command is used to created grouped signature line for Four Authors
+\newcommand*\wildcard[2][6cm]{\vspace{2cm}\parbox{#1}{\hrulefill\par#2}} 
+
+% Signature block with image ABOVE the line
+% Usage: \sigwildcard[<width>]{<image path>}{<text>}
+\newcommand*\sigwildcard[3][6cm]{%
+    \vspace{1.2cm}%
+    \parbox{#1}{%
+        \centering
+        \includegraphics[height=1.2cm]{#2}\par\vspace{-0.2cm}%
+        \hrulefill\par
+        #3
+    }%
+}
+
+% A "parbox{}{}" is a box whose contents are created in paragraph mode. 
+% "hrulefill{} to chance thickness of underline"
+
+\section*{Declaration}
+
+It is hereby declared that
+
+\begin{enumerate} % begin{enumerate} function to create numbered list
+  \item The thesis submitted is my/our own original work while completing degree at Brac University.
+  \item The thesis does not contain material previously published or written by a third party, except where this is appropriately cited through full and accurate referencing.
+  \item The thesis does not contain material which has been accepted, or submitted, for any other degree or diploma at a university or other institution.
+  \item We have acknowledged all main sources of help.
+\end{enumerate}
+
+\vspace{1cm}
+\textbf{Student’s Full Name \& Signature:} % Testbf{} for Bold
+
+\begingroup
+
+    \begin{center}
+        \sigwildcard{images/signature_shafin.jpg}{\centerline{SHAFIN ISLAM} ~\\ \centerline{22201359}} % "centerline{}" to center line
+        \hspace{2cm} % "hspace{}" for Blank Horizontal space
+        \sigwildcard{images/signature_abir.jpg}{\centerline{ABIR DEY} ~\\ \centerline{22299046} }
+        \sigwildcard{images/signature_mushroor.jpg}{\centerline{MD. MUSHROOR MUTTAKIN KHAN} ~\\ \centerline{22201631} }
+  
+    \end{center}
+
+\endgroup
+
+
+\pagebreak
+
+
+
+
+

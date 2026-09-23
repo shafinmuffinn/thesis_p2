@@ -1,0 +1,315 @@
+This chapter documents the eighteen distinct technical and methodological challenges encountered during the development of the cross-modal affective coherence framework. They are presented not as a catalogue of failures but as a record of the engineering rigour required to produce reproducible results on an imperfect open-source codebase. Each challenge includes its diagnosis, root cause, and resolution.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Summary of the eighteen engineering and methodological challenges.}
+\label{tab:engineering_challenges}
+\begin{tabular}{p{1.0cm} p{4.7cm} p{3.2cm} p{4.2cm}}
+\hline
+\textbf{ID} & \textbf{Challenge} & \textbf{Category} & \textbf{Impact if unresolved} \\
+\hline
+C1 & \texttt{facenet-pytorch} dependency conflict & Dependency management & \texttt{torchaudio} permanently broken \\
+C2 & EEGNet lambda hook bug & Architecture bug & All EEGNet training fails at BatchNorm \\
+C3 & Double-softmax composition & Architecture bug & EEG accuracy at chance level \\
+C4 & Broken import chain in EAV repository & Code defect & EEGNet cannot be imported \\
+C5 & Train/eval mode cycling & Training protocol bug & EEG accuracy at chance from epoch 2 \\
+C6 & ViT classifier head config mismatch & Architecture bug & Vision training crashes immediately \\
+C7 & Vision preprocessing RAM exhaustion & Infrastructure bug & Silent kernel termination during preprocessing \\
+C8 & Case sensitivity in Drive folder names & Infrastructure & File-not-found errors on Colab Linux filesystem \\
+C9 & Missing per-modality logits after rollout & Experimental design & Late fusion and suppression matrix infeasible \\
+C10 & EEG-Neutral inflation confound in pilot & Methodological & Suppression matrix partially artifactual \\
+C11 & Listen/Speak temporal asymmetry & Corpus design & Suppression matrix interpretation errors \\
+C12 & Windows/Mac path incompatibility & Development workflow & Scripts non-portable across platforms \\
+C13 & Research framing pivot & Methodological & Entire project lacks coherent contribution \\
+C14 & Encoder-cache leakage & Methodological & Cross-subject result silently inflated \\
+C15 & Clip/frame shape mismatch & Architecture bug & Fold-scale vision training crashes \\
+C16 & Preprocessed-tensor RAM budget & Infrastructure bug & Process killed at final batch \\
+C17 & Trainers persist final epoch & Training protocol bug & Overfit encoders saved and used \\
+C18 & Stale code in remote runtime & Development workflow & Fixed bugs appear to persist \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Dependency and Environment Challenges}
+\subsection*{C1---facenet-pytorch Dependency Conflict}
+\textbf{Symptom.} After installing \texttt{facenet-pytorch} in the Colab environment, all subsequent \texttt{torchaudio} operations failed silently or raised import errors. The AST audio encoder, which depends on \texttt{torchaudio} for audio loading, became non-functional.
+
+\textbf{Root cause.} The \texttt{facenet-pytorch} package pins \texttt{numpy<2} and specifies an old PyTorch version constraint. The dependency resolver silently downgraded the Colab environment's pre-installed NumPy and PyTorch to satisfy these constraints, breaking \texttt{torchaudio}'s compiled C++ extensions, which had been built against the newer version.
+
+\textbf{Resolution.} The \texttt{facenet-pytorch} package was excluded from all setup cells. It is required only for raw MTCNN face-crop preprocessing, which we skip because the EAV pickle files already contain pre-cropped frames. For the rare case where it is needed, it must be installed with \texttt{--no-deps} to prevent the version downgrade. The installation sequence was fixed to install only \texttt{transformers} and \texttt{wandb}, with all other libraries relying on Colab's pre-installed environment.
+
+\subsection*{C12---Windows/Mac Path Incompatibility}
+\textbf{Symptom.} Scripts that ran correctly on the Mac M1 development machine produced file-not-found errors on the Windows PC, where the mounted Google Drive appears at a different filesystem path.
+
+\textbf{Root cause.} The default fallback paths in \texttt{paths.py} used machine-specific local paths. On the Windows PC accessed via PyCharm, these defaults pointed at non-existent locations. No error was raised at import time; the wrong paths were simply used, causing silent failures at I/O time.
+
+\textbf{Resolution.} All paths were migrated from defaults to mandatory environment variables, set in the PyCharm Run Configuration for local runs and in the Colab session-start cell for cloud runs. A Colab auto-detection clause was added to catch the common case where the session-start cell was not run. Hard-coded paths are permanently banned from all scripts.
+
+\section{EEGNet Architecture and Training Bugs}
+\subsection*{C2---EEGNet Lambda Hook Bug (Critical)}
+\textbf{Symptom.} All EEGNet training crashed on the first forward pass with a BatchNorm running-mean dimension error.
+
+\textbf{Root cause.} PyTorch's \texttt{register\_forward\_hook} replaces a layer's output with the hook function's return value if that value is not \texttt{None}. The EAV repository implemented the L2 max-norm constraints as Python lambda functions:
+
+\begin{verbatim}
+self.depthwiseConv.register_forward_hook(
+    lambda module, inputs, outputs:
+        module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate)
+)
+\end{verbatim}
+
+The \texttt{renorm\_} operation is in-place and returns the modified weight tensor. The lambda propagated this as its return value, and PyTorch silently replaced the depthwise convolution's output with the weight tensor. The downstream \texttt{BatchNorm2d(64)} received an incorrectly shaped input and crashed.
+
+\textbf{Resolution.} The lambdas were replaced with a named factory function:
+
+\begin{verbatim}
+def _make_max_norm_hook(norm_rate):
+    def hook(module, inputs, outputs):
+        module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate)
+        # implicit None return; hook does not replace the output
+    return hook
+\end{verbatim}
+
+\textbf{Impact.} This bug silently corrupted all EEGNet training in the EAV repository's PyTorch path. The reported 36.7\% EEGNet baseline in the EAV paper almost certainly derives from the TensorFlow variant, not this PyTorch path. Any researcher attempting to reproduce the PyTorch EEGNet baseline from the published repository without applying this fix will observe systematic training failures.
+
+\subsection*{C3---Double-Softmax Composition}
+\textbf{Symptom.} EEG accuracy on the 3-subject pilot was 24.4\%, statistically indistinguishable from the 20\% five-class chance level, even at 50 training epochs.
+
+\textbf{Root cause.} The \texttt{EEGNet\_tor.forward()} method ended with a softmax activation:
+
+\begin{verbatim}
+self.softmax = nn.Softmax(dim=1)
+# ... in forward():
+return self.softmax(x)
+\end{verbatim}
+
+PyTorch's \texttt{CrossEntropyLoss} is implemented as fused log-softmax plus negative log-likelihood. It expects raw logits as input. Applying it to the output of \texttt{nn.Softmax} computes the log of a probability vector, which is equivalent to applying a second softmax-like transformation. Gradients vanish as soon as any class probability becomes moderately confident, preventing learning.
+
+\textbf{Resolution.} The \texttt{self.softmax} layer was removed from \texttt{\_\_init\_\_}, and the return line was replaced with \texttt{return x} in \texttt{forward()}. After this fix, EEG accuracy on the pilot improved by 26.2 percentage points, from 24.4\% to 50.6\% at 350 epochs.
+
+\subsection*{C4---Broken Import Chain in EAV Repository}
+\textbf{Symptom.} Importing \texttt{EEGNet\_tor.py} raised \texttt{ModuleNotFoundError: No module named 'Fusion'}.
+
+\textbf{Root cause.} The original file contained an import from a fusion module that does not exist in the repository:
+
+\begin{verbatim}
+from Fusion.VIT_audio.Transformer_audio import Trainer_uni
+\end{verbatim}
+
+The \texttt{Trainer\_uni} class is defined locally later in the same file, making the import dead code. However, removing it revealed a secondary issue: \texttt{TensorDataset} and \texttt{DataLoader} were being imported transitively through the missing module. With the broken import removed, these symbols became undefined.
+
+\textbf{Resolution.} The broken import line was deleted and replaced with a direct import:
+
+\begin{verbatim}
+from torch.utils.data import DataLoader, TensorDataset
+\end{verbatim}
+
+\subsection*{C5---Train/Eval Mode Cycling Bug (Critical)}
+\textbf{Symptom.} EEG accuracy was stuck near chance from epoch 2 onwards, even with the double-softmax bug fixed. A 50-epoch sanity test showed accuracy frozen at 22.5\%.
+
+\textbf{Root cause.} The shared trainer called \texttt{self.model.train()} once before the outer epoch loop. The \texttt{validate()} method, called at the end of each epoch to report test accuracy, called \texttt{self.model.eval()}. From epoch 2 onwards, all training therefore proceeded with BatchNorm layers in evaluation mode, using running statistics accumulated only during epoch 1, and with Dropout layers disabled. Both effects are particularly harmful for EEGNet in EAV's low-data regime.
+
+\textbf{Resolution.} The \texttt{self.model.train()} call was relocated to the first line of the epoch loop:
+
+\begin{verbatim}
+for epoch in range(self.num_epochs):
+    self.model.train()  # restores train mode after each validate() call
+    for batch_idx, (data, targets) in enumerate(self.train_dataloader):
+        ...
+\end{verbatim}
+
+\textbf{Impact.} This single-line fix contributed approximately 20 percentage points of improvement to EEG accuracy. Combined with the double-softmax fix, total improvement from bugged to resolved state was 26.2 percentage points on the 3-subject pilot.
+
+\section{Vision Pipeline Bugs}
+\subsection*{C6---ViT Classifier Head Configuration Mismatch}
+\textbf{Symptom.} Vision training crashed immediately on the first batch with a reshape error caused by a mismatch between five output logits and a seven-class configuration.
+
+\textbf{Root cause.} The original EAV vision trainer attempted to replace the 7-class ViT head with a 5-class head by manually setting:
+
+\begin{verbatim}
+self.model.classifier = nn.Linear(hidden_size, 5)
+self.model.num_labels = 5
+\end{verbatim}
+
+The instance attribute \texttt{model.num\_labels} was updated, but \texttt{model.config.num\_labels}, stored separately in the model's configuration object, remained at 7. When the Hugging Face training loop passed labels to the model's forward method, the model's internal loss function accessed \texttt{config.num\_labels} and expected 7 classes from a 5-class output.
+
+\textbf{Resolution.} The manual head replacement was replaced with:
+
+\begin{verbatim}
+self.model = AutoModelForImageClassification.from_pretrained(
+    model_path, num_labels=5, ignore_mismatched_sizes=True
+)
+\end{verbatim}
+
+The \texttt{from\_pretrained} call simultaneously re-initialises the head, updates \texttt{model.num\_labels}, and updates \texttt{model.config.num\_labels}, ensuring consistency across all references.
+
+\subsection*{C7---Vision Preprocessing RAM Exhaustion}
+\label{sec:c7}
+\textbf{Symptom.} The vision preprocessing cell appeared to hang indefinitely at approximately the 9,000-frame mark, then the Colab kernel terminated silently. No error message or stack trace was produced.
+
+\textbf{Root cause.} The original preprocessing loop iterated over each of the approximately 10,000 frames per subject one at a time, called the Hugging Face image processor on a single frame, and appended the result to a Python list. After the loop completed, \texttt{torch.stack(frame\_list).to(device)} was called. The stack operation produced a single tensor of shape $(10000,3,224,224)$, approximately 5.6 GB at float32, in CPU memory. Colab's CPU RAM limit was exceeded, causing the kernel to be killed by the out-of-memory manager without raising an exception.
+
+\textbf{Resolution.} The preprocessing was refactored to process frames in batches of 64, calling the image processor on each batch and appending the result to a list. Crucially, the stacked tensors were kept on CPU. The DataLoader moves each mini-batch to GPU at training time, maintaining a maximum GPU memory footprint of one batch rather than the entire subject's data.
+
+\begin{verbatim}
+for i in range(0, len(frames), 64):
+    batch = processor(images=frames[i:i+64], return_tensors="pt")["pixel_values"]
+    all_tensors.append(batch)
+    if (i // 64) % 20 == 0:
+        print(f"  preprocessed {i}/{len(frames)} frames")
+processed = torch.cat(all_tensors, dim=0)  # CPU tensor
+\end{verbatim}
+
+\section{Data and Experimental Design Challenges}
+\subsection*{C8---Case-Sensitivity in Google Drive Folder Names}
+\textbf{Symptom.} On Colab's Linux filesystem, file path lookups for EEG pickle files raised file-not-found errors, while audio and vision lookups succeeded.
+
+\textbf{Root cause.} Google Drive mounts on Linux filesystems are case-sensitive. The expected EEG folder name in one path-construction branch did not match the actual folder name on Drive. The audio and vision paths happened to match their expected case; only the EEG path caused the failure.
+
+\textbf{Resolution.} An explicit dictionary mapping was introduced:
+
+\begin{verbatim}
+MODALITY_DIRS = {'audio': 'Audio', 'vision': 'Vision', 'eeg': 'EEG'}
+\end{verbatim}
+
+\subsection*{C9---Missing Per-Modality Logits After 42-Subject Rollout}
+\label{sec:c9}
+\textbf{Symptom.} After the 42-subject overnight rollout completed, neither the naive late-fusion baseline nor the suppression matrix could be computed because the required per-modality test logits did not exist on Drive.
+
+\textbf{Root cause.} The Stage A pipeline saved per-subject model state dictionaries to enable downstream feature extraction for fusion training. However, the naive late-fusion baseline and suppression matrix both require the per-modality test logits, not just the model weights. Saving logits during Stage A had been planned but not implemented before the rollout was launched.
+
+\textbf{Resolution.} A standalone post-hoc inference script, \texttt{compute\_per\_modality\_logits.py}, was written and executed in approximately 20 minutes on Colab L4. The script loads each saved state dictionary, runs inference on the test split in \texttt{torch.no\_grad()} mode, and saves the $(120,5)$ logit matrix per subject-modality pair. All downstream scripts were updated to accept a configurable \texttt{LOGITS\_SUBDIR} environment variable so the same code works on both the pilot and full 42-subject artefacts.
+
+\subsection*{C10---EEG-Neutral Inflation Confound in the 3-Subject Pilot}
+\textbf{Symptom.} In the 3-subject pilot suppression matrix, EEG predicted Neutral on 40.6\% of qualifying suppression events, compared to 27.8\% of all test trials, a +12.8 percentage-point difference. This raised the concern that the EEG model was defaulting to Neutral on uncertain trials, artifactually inflating the Neutral column of the suppression matrix.
+
+\textbf{Root cause.} The pilot's 32 qualifying suppression events were drawn from only 360 test trials across 3 subjects---a sample too small to produce stable population estimates. The inflated Neutral rate was a small-sample artifact, not a systematic model behaviour.
+
+\textbf{Resolution.} The 42-subject rollout's suppression matrix, with 401 events from 5,040 trials, showed a Neutral prediction rate of 24.7\% on suppression events versus 25.7\% on all trials, a -1.0 percentage-point difference. The inflation entirely disappeared at scale, confirming the pilot artifact hypothesis. The Neutral column of the 42-subject matrix is interpretable at face value.
+
+\subsection*{C11---Listen/Speak Temporal Asymmetry Discovery}
+\label{sec:listenspeak_asymmetry}
+\textbf{Symptom.} During the cross-modal trial alignment check, it was discovered that EEG data from Listening clips and audio/video data from Speaking clips are drawn from different temporal windows within the same conversational interaction.
+
+\textbf{Root cause.} The EAV corpus's cue-based conversation paradigm generates each trial in two phases: first, the participant listens to an emotion-laden prompt while EEG is recorded; second, the participant speaks a response while audio and video are recorded. These two windows are temporally offset by several seconds within the same trial. The EAV repository's preprocessing reflects this through separate modality-specific filtering rules.
+
+\textbf{Resolution.} This asymmetry cannot be corrected without re-downloading and re-preprocessing the raw EAV data, which was impractical within the thesis schedule. It was instead documented as a methodological caveat for the suppression matrix interpretation: the EEG signal and the audio/video signals are both labelled with the same emotion category, but they are drawn from different phases of the trial. Cross-modal agreement in this context means agreement between internal neural state during listening and external behavioural expression during speaking---a meaningful but specific form of cross-modal coherence.
+
+\section{Methodological Challenge}
+\subsection*{C13---Research Framing Pivot}
+\textbf{Symptom.} At approximately the project midpoint, the original research framing---continuous in-the-wild emotion tracking---was found to be infeasible for the Phase 1 scope. The planned demonstration of real-time emotion tracking on arbitrary video could not be delivered.
+
+\textbf{Root cause.} EEG cannot be collected from in-the-wild audiovisual recordings such as films, social media videos, or surveillance feeds. The EEG modality requires physical contact with the subject's scalp via active electrodes. Any system that tracks emotion from arbitrary video content would therefore be operating with EEG zeroed or absent---effectively a bimodal audio-visual system, not the trimodal system the thesis had framed as its contribution.
+
+\textbf{Resolution.} The research framing was pivoted from accuracy-maximisation on arbitrary video to cross-modal affective coherence characterisation on the EAV laboratory corpus. This reframing produced a stronger and more scientifically precise thesis contribution: instead of claiming to build an in-the-wild tracker that could not be validated, the thesis characterises the structure of within-trial cross-modal disagreement at population scale---a contribution that is directly grounded in the available data and directly extensible to future clinical validation. All existing code and experimental artefacts were preserved; only the analysis strategy and the framing of the headline contribution changed.
+
+\section{Cross-Subject Evaluation Challenges}
+\label{sec:cs_challenges}
+
+The cross-subject evaluation of Chapter~\ref{chap:crosssubject} introduced a further
+five challenges. Three are engineering defects that arose specifically from scaling a
+per-subject pipeline to fold scale; two are methodological.
+
+\subsection*{C14---Encoder-Cache Leakage (Critical, Methodological)}
+
+\textbf{Symptom:} None. This is a defect that produces no error and no visibly
+anomalous number, which is what makes it dangerous.
+
+\textbf{Root cause:} The obvious implementation of a cross-subject evaluation reuses
+the cached per-subject encoders and features from the within-subject rollout, training
+a fusion head on 41 participants' cached features and testing on the 42nd. But each
+cached encoder was fine-tuned on its own participant, so the held-out participant's
+features are produced by a model already fitted to that participant. The resulting
+accuracy would be inflated and would fall plausibly between the true within-subject
+and cross-subject values, giving no signal that anything was wrong.
+
+\textbf{Resolution:} All three encoders are retrained from scratch per fold on
+training participants only. The constraint is documented directly in the pipeline's
+module docstring, because it is the kind of shortcut a future contributor would
+reasonably attempt. This retraining constitutes essentially the entire computational
+cost of the cross-subject evaluation.
+
+\subsection*{C15---Clip/Frame Shape Mismatch at Fold Scale}
+
+\textbf{Symptom:} \texttt{ValueError: Could not make a flat list of images}, raised by
+the Hugging Face image processor during fold-wise vision training.
+
+\textbf{Root cause:} \texttt{ImageClassifierTrainer} flattens clips into frames
+internally and derives its frames-per-clip count from the second dimension of the
+training array. The fold-scale data loader pre-flattened clips into frames before
+passing them in, so the trainer iterated over the rows of individual frames and
+handed the processor two-dimensional arrays of pixel values.
+
+A second defect was latent behind the first: the fitting and inner-validation sets
+were sampled independently and could receive different frames-per-clip counts. Since
+the frames-per-clip value is read from the fitting array alone and applied to both,
+the validation labels would have desynchronised from the validation frames.
+
+\textbf{Resolution:} The loader preserves clip structure and per-clip labels, and a
+single sampling plan is computed per fold and applied to both splits. A regression
+test replays the trainer's own flattening and label-repetition logic against the
+pooled array, so this class of shape error fails on CPU in seconds rather than after a
+fold's worth of GPU time.
+
+\subsection*{C16---Budgeting the Preprocessed Tensor, Not the Raw Frames}
+
+\textbf{Symptom:} The process was terminated immediately after the final
+preprocessing batch, with no exception.
+
+\textbf{Root cause:} Two compounding errors. First, the RAM guard budgeted the raw
+uint8 frames (9.4 KB each), but \texttt{preprocess\_images} resizes every frame to
+$224 \times 224$ float32---602 KB per frame, 64 times larger. A budget believed to be
+0.5 GB was in reality approximately 36 GB. Second, the method assembled its output by
+appending each batch to a list and calling \texttt{torch.cat}, which holds the list
+and its concatenated copy simultaneously, doubling peak memory at the very last batch.
+
+This is the same function in which the within-subject RAM exhaustion of
+Section~\ref{sec:c7} occurred, and the earlier fix---introducing the
+\texttt{torch.cat}---is what created the second half of the new failure.
+
+\textbf{Resolution:} The budget is applied to the preprocessed size and is
+configurable at the command line; the output is written into a preallocated tensor
+rather than concatenated, keeping peak memory equal to the size of the result. The
+general lesson is that a fix which scales a pipeline up by an order of magnitude
+warrants re-examining the fix itself, not merely the code around it.
+
+\subsection*{C17---Trainers Persist the Final Epoch, Not the Best}
+
+\textbf{Symptom:} EEG inner-validation accuracy was higher at 60 epochs (0.3833) than
+at 200 (0.3567), while training loss continued to fall.
+
+\textbf{Root cause:} Both \texttt{Trainer\_uni} and \texttt{ImageClassifierTrainer}
+compute validation accuracy every epoch but neither returns it nor retains the
+corresponding weights; the driver saves whatever state the final epoch leaves behind.
+At fold scale EEGNet overfits well before the epoch budget, so the persisted model was
+systematically worse than the best model observed during the same run.
+
+A related failure appeared once selection was added for vision: the selector initially
+ranged over both the frozen and fine-tuning phases and chose a frozen-backbone
+checkpoint whose inner-validation accuracy exceeded the fine-tuned one by 0.25
+percentage points---inside the approximately 0.8-point noise floor of a 3,600-frame
+validation set---while scoring 10 points worse on held-out participants.
+
+\textbf{Resolution:} Epoch budgets become upper bounds and the best
+inner-validation checkpoint is retained, with early stopping for EEGNet. Vision
+selection is restricted to the fine-tuning phase, on the principle that a
+frozen-backbone model is a linear probe rather than an earlier epoch of the
+architecture under evaluation. The broader lesson is that model selection requires a
+validation set sized to the decision being made, not merely to the metric: a criterion
+finer-grained than its own noise floor will choose arbitrarily, and the consequences
+need not be small.
+
+\subsection*{C18---Stale Code in the Remote Runtime}
+
+\textbf{Symptom:} A crash reproduced byte-for-byte after the fix had been written,
+tested and committed---including a log line that no longer existed in the fixed code.
+
+\textbf{Root cause:} The workflow authors code locally and executes it in a Colab
+runtime that pulls from GitHub. A fix that is committed but not pushed, or pushed but
+not pulled, reproduces the original failure exactly. This occurred three times and
+cost several hours of GPU time.
+
+\textbf{Resolution:} The pipeline prints its own short git commit hash and a
+working-tree-dirty flag before performing any work, so verifying that the running code
+is the intended code is a one-line check rather than an inference from log formats.

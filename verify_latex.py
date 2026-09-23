@@ -22,7 +22,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent / "LateX"
+# `python verify_latex.py` checks the P3 report; pass `LateX` to check the P2 one.
+ROOT = Path(__file__).resolve().parent / (sys.argv[1] if len(sys.argv) > 1 else "LateX_P3")
 TEX_GLOBS = ["main.tex", "chapters/*.tex", "core/*.tex", "appendix/*.tex"]
 BIB_FILE = ROOT / "bibliography" / "references.bib"
 
@@ -160,10 +161,21 @@ def main() -> int:
     print(f"  bib entries unused  : {len(real_bib_keys - set(cites))}")
     print(f"  duplicate labels    : {len(dup_labels)}")
     print(f"  duplicate bib keys  : {len(dup_bib)}")
+    # \pend{...} marks a value not yet traced to a results CSV (main.tex).
+    pend_re = re.compile(r"\\pend\{")
+    pending = [(f, n) for f in files if f.name != "main.tex"
+               for n, line in enumerate(f.read_text().splitlines(), start=1)
+               if pend_re.search(line)]
+    print(f"  \\pend{{...}} markers : {len(pending)}")
+    for f, n in pending:
+        print(f"      {relp(f)}:{n}")
     print()
     if undefined_refs or undefined_cites:
         print("RESULT: FAIL  -- the issues above would render as ?? / [?] in PDF.")
         return 1
+    if pending:
+        print("RESULT: PASS (refs/cites) -- but resolve every \\pend{} before submitting.")
+        return 0
     print("RESULT: PASS  -- no broken references or citations.")
     return 0
 
