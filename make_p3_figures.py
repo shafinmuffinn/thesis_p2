@@ -52,6 +52,21 @@ def means(name: str) -> dict[str, tuple[float, float, float]]:
             for r in read(STATS / f"{name}_means.csv")}
 
 
+def calibrated_naive_means() -> dict[int, float]:
+    """n -> mean accuracy of centred naive late fusion (random draws only)."""
+    path = RESULTS / "calibrated_naive.csv"
+    if not path.exists():
+        return {}
+    per: dict[tuple, list[float]] = {}
+    for r in read(path):
+        if r["setting"] == "random" and r["variant"] == "naive_centred":
+            per.setdefault((int(r["n_calib"]), int(r["subject"])), []).append(float(r["acc"]))
+    by_n: dict[int, list[float]] = {}
+    for (n, _), v in per.items():
+        by_n.setdefault(n, []).append(np.mean(v))
+    return {n: float(np.mean(v)) for n, v in by_n.items()}
+
+
 def fig_within_cross(plt, out: Path) -> None:
     within = means("within_leakfree")
     cross = means("cross_default")
@@ -93,15 +108,25 @@ def fig_cal_curve(plt, out: Path) -> None:
             if not pts:
                 continue
             n, m, lo, hi = map(np.array, zip(*pts))
-            ax.plot(n, m * 100, "o-", color=colour, label=LABEL[v], ms=4)
+            label = "Averaging, uncalibrated" if v == "naive_late" else LABEL[v]
+            ax.plot(n, m * 100, "o-", color=colour, label=label, ms=4)
             ax.fill_between(n, lo * 100, hi * 100, color=colour, alpha=0.15)
         ax.axhline(calib["concat_mlp"][0] * 100, color="#55A868", ls="--", lw=0.8)
+        if cond == "random":
+            # Calibrated averaging (experiment A), same random draws, n = 20 and 50.
+            cn = calibrated_naive_means()
+            if cn:
+                n, m = zip(*sorted(cn.items()))
+                ax.plot(n, np.array(m) * 100, "s--", color="#4C72B0", ms=6,
+                        label="Averaging, calibrated")
         ax.set_xscale("log"); ax.set_xticks([5, 10, 20, 50, 100, 200], ["5", "10", "20", "50", "100", "200"])
         ax.set_xlabel("Unlabelled calibration clips (5 s each)")
         ax.set_title("Random clips" if cond == "random" else "Skewed clips, Dirichlet(0.3)", fontsize=10)
     axes[0].set_ylabel("Accuracy on remaining clips (%)")
-    axes[0].legend(frameon=False, fontsize=8, loc="lower right")
-    fig.tight_layout(); fig.savefig(out / "fig_cal_curve.png", dpi=200); plt.close(fig)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=5, frameon=False, fontsize=8)
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    fig.savefig(out / "fig_cal_curve.png", dpi=200); plt.close(fig)
 
 
 def fig_identity_probe(plt, out: Path) -> None:
@@ -138,7 +163,8 @@ def fig_audit_suppression(plt, out: Path) -> None:
     r = np.corrcoef(offdiag(M), offdiag(C))[0, 1]
     names = [IDX_TO_EMOTION[i] for i in range(5)]
     vmax = max(M.max(), C.max())
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.3))
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.6))
+    fig.subplots_adjust(wspace=0.45)
     for ax, mat, title, ylab in [
             (axes[0], M, f"Suppression matrix ({M.sum()} events)", "Audio-vision consensus"),
             (axes[1], C, "EEG confident errors, AV-correct trials", "Cued class")]:
