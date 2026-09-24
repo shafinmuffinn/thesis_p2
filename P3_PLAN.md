@@ -221,3 +221,16 @@ Block 1 order now: calibration_study (M) -> identity probe (M) -> alignment (M)
     than averaging. Then rewrite abstract, Ch1 contributions, Ch7 RQ7/discussion,
     Ch11 summary/contrib/RQ table/Lim 3 around the new headline.
 
+- 25 Sep: labelled_naive DONE. Labelled averaging (5 class biases) adds
+  +1.4..+2.7pp over centred averaging (all sig); weights variant useless
+  (lambda=0.1 every fold). Labelled heads vs labelled averaging: n=5 tie/worse
+  (dropout_av -2.09 sig), n=10 tie, n=20 only dropout_full +2.02 sig, n=50 ALL
+  heads +3.2..+4.8 sig (dropout_full +4.75, 40/42).
+  FINAL HEADLINE: without labels, calibration (not the fusion operator) is what
+  matters (calibrated averaging 74.9 = heads). With 20-50 labelled clips,
+  learned heads beat labelled averaging; dropout-trained attention first/most.
+  Written into abstract, Ch1, Ch6, Ch7, Ch8(cal), Ch11 (commit 22a652e).
+  EXPERIMENTS FROZEN. Remaining \pend: Ch7 per-fold Stage A times (1).
+  Next: Turnitin rewrite (Ch1-5 condensed fresh, C1-C13, Ch6 6.1-6.2; ToC),
+  re-measure verbatim overlap, Overleaf compile, slides (8-10), supervisor.
+
