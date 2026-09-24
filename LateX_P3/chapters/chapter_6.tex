@@ -1,14 +1,18 @@
-\section{Per-Modality Baseline Performance}
-Per-modality training was initially validated on three pilot subjects (Subjects 1, 2, and 3) using minimal smoke-test epoch budgets. Table \ref{tab:day1_smoke_test} reports the results.
+This chapter reports results under the within-subject protocol: every model is trained and tested on the same participant. Per-modality and naive late-fusion figures involve no model selection; every learned-fusion figure is leak-free (Section~\ref{sec:learned_fusion_results}).
+
+\section{Single-Modality Performance}
+
+\subsection{Pilot}
+The encoders were first run on participants 1--3. With a deliberately short budget (AST 2 + 2 epochs, ViT 1 + 1, EEGNet 50), audio and vision were already well above chance, but EEG averaged 24.4\%, essentially chance (Table~\ref{tab:day1_smoke_test}). That result led to the two EEGNet defects described in Chapter~\ref{chap:engineering_challenges}. After fixing them and moving to the full budget, the same three participants reached the accuracies in Table~\ref{tab:day2_full_budget}, with EEG at 50.6\%.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{Minimum-budget smoke-test per-subject test accuracies on three pilot subjects (2+2 epochs for AST, 1+1 epochs for ViT, and 50 epochs for EEGNet). Chance is 20\%.}
+\caption{Pilot, short training budget (AST 2 + 2, ViT 1 + 1, EEGNet 50 epochs). Chance is 20\%.}
 \label{tab:day1_smoke_test}
 \begin{tabular}{c c c c}
 \hline
-\textbf{Subject} & \textbf{Audio accuracy} & \textbf{Vision accuracy} & \textbf{EEG accuracy} \\
+\textbf{Participant} & \textbf{Audio} & \textbf{Vision} & \textbf{EEG} \\
 \hline
 01 & 49.2\% & 62.5\% & 30.8\% \\
 02 & 69.2\% & 69.2\% & 20.8\% \\
@@ -19,18 +23,14 @@ Mean & 56.4\% & 70.6\% & 24.4\% \\
 \end{tabular}
 \end{table}
 
-The audio and vision results meaningfully exceeded the EAV paper's published per-modality baselines even at minimal epoch budgets, confirming that the pre-trained foundation-model encoders transfer effectively to EAV. The EEG result, with a 24.4\% mean, was statistically indistinguishable from the 20\% chance level, prompting the debugging investigation that uncovered the two training bugs described in detail in Chapter~\ref{chap:engineering_challenges}. These bugs---the forward-hook return-value defect and the train/eval mode cycling defect---were resolved before proceeding to full-budget training.
-
-Full-budget training results on the three pilot subjects are reported in Table \ref{tab:day2_full_budget}.
-
 \begin{table}[htbp]
 \centering
 \small
-\caption{Full-budget per-modality test accuracies on the three-subject pilot. Delta vs.\ the smoke test: audio +4.7 pp, vision +5.0 pp, EEG +26.2 pp.}
+\caption{Pilot, full budget after the EEGNet fixes. Change from Table~\ref{tab:day1_smoke_test}: audio $+4.7$, vision $+5.0$, EEG $+26.2$ points.}
 \label{tab:day2_full_budget}
 \begin{tabular}{c c c c}
 \hline
-\textbf{Subject} & \textbf{Audio accuracy} & \textbf{Vision accuracy} & \textbf{EEG accuracy} \\
+\textbf{Participant} & \textbf{Audio} & \textbf{Vision} & \textbf{EEG} \\
 \hline
 01 & 55.8\% & 62.5\% & 44.2\% \\
 02 & 71.7\% & 80.8\% & 54.2\% \\
@@ -41,58 +41,50 @@ Mean & 61.1\% & 75.6\% & 50.6\% \\
 \end{tabular}
 \end{table}
 
-The EEG improvement of 26.2 percentage points---from 24.4\% at chance level to 50.6\%---is the most consequential result of the pilot phase. It combines the bug fixes with the move from 50 to 350 training epochs, and the two cannot be separated from these runs; a 50-epoch check after the softmax fix alone moved Subject~1 by only about one point. A fusion model with a near-random EEG branch would have been functionally a bimodal audio-visual model with noise added; the value of the EEG modality as a signal of internal state is conditional on the encoder producing genuinely above-chance predictions.
+The 26.2-point EEG gain mixes two changes---the fixes and the longer schedule---that these runs cannot separate; a 50-epoch rerun of participant~1 after the softmax fix alone moved it by only about one point. Either way, EEG needed to be clearly above chance before it could contribute anything to fusion.
 
-The 42-subject rollout confirmed and strengthened these pilot results. Mean per-modality accuracies across all 42 subjects are reported in Table \ref{tab:full_rollout_accuracy}, together with the EAV paper's published baselines for comparison.
+\subsection{All 42 Participants}
+Table~\ref{tab:full_rollout_accuracy} gives the 42-participant means. Each encoder beats the corresponding EAV baseline: audio by 20.4 points, vision by 21.8 and EEG by 7.2. Vision is the strongest modality (74.6\%), audio intermediate (57.1\%) and EEG weakest (43.9\%), which is consistent with a facial-emotion model pre-trained on large image collections, a general audio model adapting to emotional speech, and an EEG model trained from scratch on 280 trials. Chapter~\ref{chap:crosssubject} shows that much of vision's lead is participant-specific.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{42-subject mean test accuracies across per-modality and fusion methods. Fusion heads are leak-free (final epoch of a fixed 80-epoch schedule, no epoch selection; Section~\ref{sec:learned_fusion_results}).}
+\caption{Within-subject means over 42 participants. Fusion heads are leak-free (final epoch of a fixed 80-epoch schedule; Section~\ref{sec:learned_fusion_results}).}
 \label{tab:full_rollout_accuracy}
 \begin{tabular}{p{5.0cm} p{3.6cm} p{5.1cm}}
 \hline
-\textbf{Method} & \textbf{Mean accuracy} & \textbf{Delta vs. baseline} \\
+\textbf{Method} & \textbf{Mean accuracy} & \textbf{Comparison} \\
 \hline
-Per-modality: Audio (AST) & 57.1\% & +20.4 pp above SCNN (36.7\%) \\
-Per-modality: Vision (ViT) & 74.6\% & +21.8 pp above DeepFace (52.8\%) \\
-Per-modality: EEG (EEGNet) & 43.9\% & +7.2 pp above EEGNet (36.7\%) \\
-Best single modality (Vision) & 74.6\% & -- \\
-Naive late fusion (mean-softmax) & 77.5\% & +2.9 pp over best single  ($p=0.020$) \\
-Concat-MLP fusion & 79.96\% & +2.48 pp over naive late fusion ($p_{\mathrm{Holm}}=0.031$) \\
-Cross-attention fusion & 76.75\% & $-0.73$ pp vs naive late fusion (n.s.) \\
-+ Softhard modality dropout & 79.80\% & +3.06 pp over cross-attention ($p_{\mathrm{Holm}}<10^{-3}$) \\
+Audio (AST) & 57.1\% & $+20.4$ over SCNN (36.7\%) \\
+Vision (ViT) & 74.6\% & $+21.8$ over DeepFace (52.8\%) \\
+EEG (EEGNet) & 43.9\% & $+7.2$ over EEGNet (36.7\%) \\
+Naive late fusion & 77.5\% & $+2.9$ over vision ($p = 0.020$) \\
+Concat-MLP & 79.96\% & $+2.48$ over naive ($p_{\mathrm{Holm}} = 0.031$) \\
+Attention & 76.75\% & $-0.73$ vs naive (n.s.) \\
+Attention + modality dropout & 79.80\% & $+3.06$ over attention ($p_{\mathrm{Holm}} < 10^{-3}$) \\
 \hline
 \end{tabular}
 \end{table}
 
-Three observations merit emphasis. First, all three per-modality classifiers exceed their respective EAV-paper baselines by margins of 7.2 to 21.8 percentage points. This confirms that the per-modality training pipeline---corrected for the EAV repository bugs---produces credibly above-baseline signal from each modality, a necessary precondition for the fusion and coherence analyses.
+\textbf{RQ1 answer:} Yes. Every modality is classified well above the published EAV baselines within-subject.
 
-Second, the per-modality results respect the expected ordering: vision (74.6\%) $>$ audio (57.1\%) $>$ EEG (43.9\%). Vision's lead reflects the richness of facial expression information in five-second clips and the effectiveness of the pre-trained facial-emotion ViT as a transfer-learning backbone. Audio's intermediate performance reflects the complexity of emotion-in-speech under the cue-based elicitation paradigm. EEG's lower performance, though above the EAV baseline, is expected given the small per-subject training set (280 trials) and the absence of any cross-subject pretraining for EEGNet.
-
-Third, the EEG's primary role in this thesis is not to achieve high standalone accuracy but to provide a reliable internal-state signal for the coherence analysis. That analysis requires only that EEG's confident predictions carry genuine information content---a condition satisfied at 43.9\% mean accuracy with the 0.5 confidence threshold applied in the suppression analysis.
-
-\textbf{RQ1 answer:} Yes. All three per-modality classifiers exceed the EAV paper's published baselines, confirming that each modality carries genuine discriminative signal at 42-subject scale.
-
-\section{Naive Late-Fusion Baseline}
+\section{Naive Late Fusion}
 \label{sec:naive_late_fusion_results}
 
-The naive late-fusion baseline is implemented by averaging the per-trial softmax probabilities of the three modality classifiers and taking the argmax of the averaged vector as the fused prediction. No learning is involved; the computation is purely arithmetic on the saved logits.
+Averaging the three encoders' class probabilities (Section~\ref{sec:naive_method}) gives 77.5\% over 42 participants, 2.9 points above vision alone. The paired Wilcoxon test over participants is significant ($W = 251.5$, $p = 0.020$, rank-biserial $r = +0.42$), with 29 of the 41 untied participants favouring fusion. On the three pilot participants the gain looked larger (81.9\% against 75.6\%, $+6.3$ points), but those three happened to be comparatively easy; the 42-participant figure is the estimate to use.
 
-On the three pilot subjects, naive late fusion produced a mean accuracy of 81.9\%, a gain of 6.3 percentage points over the best single modality (vision, 75.6\%). On all 42 subjects, the mean is 77.5\%, a gain of 2.9 percentage points over the 42-subject vision mean of 74.6\%. The drop between the 3-subject pilot mean and the 42-subject mean is attributable to the small-sample composition of the pilot, which happened to include two relatively easy subjects; the 42-subject figure is the population estimate. A paired Wilcoxon signed-rank test on the per-subject differences confirms that naive late fusion significantly outperforms vision-only ($W=251.5$, $p=0.020$, rank-biserial $r=+0.42$; 29 of 41 non-tied pairs favour fusion).
+\textbf{RQ2 answer:} Yes. Fusing the three modalities improves on the best single one, by 2.9 points for plain averaging. The leak-free learned heads reach 76.8--80.0\% (Section~\ref{sec:learned_fusion_results}), 2.2 to 5.4 points above the vision mean, though those differences were not tested against vision directly.
 
-\textbf{RQ2 answer:} Yes. Multimodal fusion improves accuracy over the best single modality at 42-subject scale. Naive late fusion outperforms vision-only by 2.9 percentage points ($p=0.020$); the leak-free learned heads reach 76.8--80.0\% (Section~\ref{sec:learned_fusion_results}), 2.2 to 5.4 points above the vision-only mean, although those differences were not tested pairwise against vision. The three modalities carry complementary information that simple averaging already extracts.
-
-\section{Learned Fusion: Cross-Attention and Concat-MLP}
+\section{Learned Fusion: Attention and Concatenation}
 \label{sec:learned_fusion_results}
 \label{sec:cross_attention_results}
 \label{sec:concat_mlp_results}
 
-\textbf{Note on terminology.} The thesis title and the broader multimodal emotion recognition literature use ``cross-modal attention fusion'' as an umbrella term for attention-based fusion across modalities. As detailed in Section~\ref{sec:fusion_design_rationale}, the present implementation realises this as \emph{self-attention over a three-token modality sequence}, because pairwise cross-attention degenerates to a learned linear projection at single-token-per-modality feature resolution. Throughout this report, the labels ``cross-attention fusion'' and ``self-attention modality fusion'' refer to the same \texttt{TrimodalAttentionFusion} module.
+\textbf{Terminology.} Following common usage, ``cross-attention fusion'' in this report refers to the \texttt{TrimodalAttentionFusion} module, which implements attention-based fusion as self-attention over three modality tokens (Section~\ref{sec:fusion_design_rationale}); ``attention'' is used as shorthand.
 
-\textbf{Note on the figures in this section.} The Pre-Thesis~II report selected each fusion head's epoch on the test set, which inflated every learned-fusion figure by 5.3 to 7.5 percentage points (Section~\ref{sec:audit_selection}). All learned-fusion figures in this report are leak-free: each head is trained on all 280 training trials for the fixed 80-epoch cosine schedule and evaluated once, at the final epoch, with no epoch selection of any kind. The per-modality and naive late-fusion figures above involve no selection and are unchanged from Pre-Thesis~II.
+\textbf{Leak-free figures.} The Pre-Thesis~II report chose each fusion head's epoch by its test accuracy, which inflated the learned-fusion figures by 5.3 to 7.5 points (Section~\ref{sec:audit_selection}). Every learned-fusion figure here is instead taken at the final epoch of a fixed schedule trained on all 280 training trials, with no selection of any kind.
 
-To isolate the contribution of the attention mechanism from the broader contribution of learned fusion, a simpler learned baseline is trained alongside it: a multi-layer perceptron over the concatenated per-modality features. The concat-MLP takes the audio (768), vision (768) and EEG (960) feature vectors, concatenates them into a 2{,}496-dimensional input, and passes it through Linear(2496, 512) $\rightarrow$ GELU $\rightarrow$ Dropout(0.1) $\rightarrow$ Linear(512, 128) $\rightarrow$ GELU $\rightarrow$ Dropout(0.1) $\rightarrow$ Linear(128, 5), about 1.34 million parameters against the attention module's 2.28 million. Both heads use AdamW at learning rate $10^{-3}$ with weight decay $10^{-4}$, batch size 32, and 80 epochs of cosine annealing.
+The attention module is compared with the concatenation MLP of Section~\ref{sec:concat_baseline} (1.35 million parameters against 2.29 million), which separates the value of attention from the value of learning a fusion at all. Both use the settings of Table~\ref{tab:fusion_hyperparameters}.
 
 \begin{table}[htbp]
 \centering
@@ -239,4 +231,4 @@ Where several tests address one question, the Holm step-down procedure \cite{Hol
 
 \textbf{On the Listen/Speak asymmetry.} In EAV the EEG segments are taken from the participant's \emph{listening} window and the audio and video from the \emph{speaking} window (Section~\ref{sec:listenspeak_asymmetry}). The three modalities are therefore never simultaneous: a trimodal example pairs the neural response to a cue with the behavioural response to it. This matters little for classification accuracy, but it constrains any trial-level interpretation of agreement between EEG and the audio-visual signals.
 
-\textbf{On the relationship to Pan et al.\ 2024.} Pan et al.\ \cite{Pan2024OJEMB} fuse facial expression, speech and EEG at decision level---equivalent to the naive late-fusion baseline here---on datasets including MAHNOB-HCI, and find that fusion is significantly better only than speech, not than face or EEG. The leak-free within-subject results here are consistent with that picture: on corpora where one modality dominates and data per participant are scarce, the choice of fusion operator matters less than the encoders and the amount of training data.
+\textbf{On the relationship to Pan et al.\ 2024.} \pend{verify this description of Pan et al.\ against the paper; Chapter 2 must agree} Pan et al.\ \cite{Pan2024OJEMB} fuse facial expression, speech and EEG at decision level---equivalent to the naive late-fusion baseline here---on datasets including MAHNOB-HCI, and find that fusion is significantly better only than speech, not than face or EEG. The leak-free within-subject results here are consistent with that picture: on corpora where one modality dominates and data per participant are scarce, the choice of fusion operator matters less than the encoders and the amount of training data.

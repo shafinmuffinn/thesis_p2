@@ -1,325 +1,280 @@
-\section{Design Overview and Pipeline Structure}
-The methodology is structured as three sequential, independently cached stages. Each stage produces artefacts---compressed NumPy archives, PyTorch state dictionaries, or CSV result files---that are written to persistent storage before the next stage begins. This design allows the pipeline to be safely interrupted and resumed, a practical requirement given the Colab Pro session time limits described in Chapter~\ref{chap:implementation}.
+This chapter describes the system end to end: the data, the three encoders, the fusion methods, the coherence analysis, the evaluation protocols, and how the computation was organised. Values stated here are those in the code that produced the results.
 
-\textbf{Stage A---Per-Modality Encoder Training.} Three independent deep learning models---one for each modality---are fine-tuned or trained from scratch on each subject's EAV data. After training, two artefacts are saved per subject-modality pair: the encoder's full state dictionary, for later feature extraction; and the per-trial test-set logits and labels, for the naive late-fusion baseline and the suppression matrix analysis. These artefacts are the raw material for all downstream stages.
+\section{Pipeline Overview}
+The system is built as three stages, each of which writes its outputs to persistent storage before the next begins, so that an interrupted session can resume where it stopped.
 
-\textbf{Stage B---Pre-Classifier Feature Extraction.} Each trained encoder is loaded, the final classification head is removed, and the penultimate-layer representation is extracted for every training and test trial. The result is three feature matrices per subject---audio, vision, and EEG---each of shape $(N_{\mathrm{trials}}, d_{\mathrm{feature}})$. These cached features allow Stage C to iterate on fusion hyperparameters without re-running the computationally expensive per-modality encoders.
-
-\textbf{Stage C---Fusion Training and Evaluation.} The \texttt{TrimodalAttentionFusion} module is trained on the cached per-subject features for a fixed schedule and evaluated once, at the final epoch; no epoch is chosen by looking at test data (Section~\ref{sec:audit_selection} explains why this differs from the Pre-Thesis~II protocol). Per-subject accuracy is appended to a CSV result file. Separately, the per-modality Stage A logits are used to compute a naive late-fusion baseline with no training required and to populate the coherence suppression matrix.
+\begin{enumerate}
+    \item \textbf{Stage A---encoders.} One model per modality is trained: AST for audio, a facial-emotion ViT for video, EEGNet for EEG.
+    \item \textbf{Stage B---features.} Each trained encoder, with its classification layer removed, converts every trial into one feature vector; its class logits are stored alongside.
+    \item \textbf{Stage C---fusion.} Fusion methods are trained and scored on the cached features and logits, which makes them cheap to rerun.
+\end{enumerate}
 
 \begin{figure}[htbp]
 \centering
-\IfFileExists{images/fig_4_1_trimodal_pipeline.png}{\includegraphics[width=0.9\textwidth]{images/fig_4_1_trimodal_pipeline.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_4\_1\_trimodal\_pipeline.png}. Upload the original pipeline diagram here.}}}
-\caption{Three-stage trimodal pipeline: per-modality encoders, cross-modal attention fusion, and coherence analysis.}
+\IfFileExists{images/fig_4_1_trimodal_pipeline.png}{\includegraphics[width=0.9\textwidth]{images/fig_4_1_trimodal_pipeline.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_4\_1\_trimodal\_pipeline.png}.}}}
+\caption{The three-stage pipeline: per-modality encoders, cached features, and fusion.}
 \label{fig:trimodal_pipeline}
 \end{figure}
 
-Figure \ref{fig:trimodal_pipeline} illustrates the three-stage pipeline. The architecture is designed with two explicit long-term commitments. First, the fusion module's \texttt{forward()} method returns a dictionary containing five named tensors: \texttt{logits}, \texttt{audio\_embed}, \texttt{vision\_embed}, \texttt{eeg\_embed}, and \texttt{fused\_embed}. The per-modality post-attention embeddings are stable outputs under a fixed API contract, enabling a future temporal head (LSTM, Residual-TCN, or temporal transformer) to read them without modifying the fusion module. Second, the \texttt{forward()} signature accepts \texttt{x\_eeg} as a regular argument with no default, but produces finite output when \texttt{x\_eeg} is a zero tensor. This is the architectural guarantee that enables the modality-dropout robustness evaluation in Section \ref{sec:modality_dropout} and the demonstration component.
+Two properties of the fusion module were fixed at the design stage (Figure~\ref{fig:trimodal_pipeline}). It returns, besides its logits, the post-attention embedding of each modality and the fused embedding, so that a temporal model could later be attached without changing it. And it accepts an all-zero EEG input and still produces finite predictions, which is what makes EEG-free inference possible (Section~\ref{sec:modality_dropout}).
 
-\section{Dataset: EAV}
-\subsection{Corpus Description}
-The EAV (EEG-Audio-Video) dataset was published by Lee, Shomanov, Kabidenova, and Yazici at Nazarbayev University in \textit{Scientific Data} \cite{Lee2024EAV}. The corpus covers 42 healthy adult participants in a cue-based, pseudo-random conversation paradigm designed to elicit five target emotions: Neutral, Anger, Happiness, Sadness, and Calmness. Each session records three synchronised streams:
+\section{Data}
+\label{sec:split_alignment}
 
+EAV \cite{Lee2024EAV} contains 42 healthy adults engaged in a cue-based conversation designed to elicit five emotions: Neutral, Anger, Happiness, Sadness and Calmness. EEG was recorded from 30 electrodes at 500 Hz, and audio and 30-frame-per-second video were recorded while the participant spoke. Each participant has 200 interactions, half in which they listen to an emotional prompt and half in which they respond. The released EEG is taken from the listening interactions and the audio and video from the speaking interactions, so the EEG and audio-visual windows of a ``trial'' are not simultaneous (Section~\ref{sec:listenspeak_asymmetry}).
+
+The EAV repository's scripts turn each 20-second interaction into four five-second trials, giving 400 trials per participant and modality, 80 per class:
 \begin{itemize}
-    \item \textbf{EEG:} 30-channel, 500 Hz sampling rate, standard 10--20 electrode placement, acquired with a BrainAmp Standard amplifier.
-    \item \textbf{Audio:} 16 kHz mono, recorded concurrently during the participant's spoken responses to each emotion cue.
-    \item \textbf{Video:} 30 frames per second, $640\times480$ pixels, capturing the participant's face during spoken responses.
+    \item \textbf{EEG} is downsampled from 500 to 100 Hz by polyphase resampling, band-pass filtered between 0.5 and 45 Hz with a fifth-order Butterworth filter, and cut into windows of 30 channels by 500 samples.
+    \item \textbf{Audio} is resampled to 16 kHz and cut into 80{,}000-sample segments; the AST feature extractor turns each into a 128-band log-mel representation when it is loaded.
+    \item \textbf{Video} is sampled every sixth frame over the first 600 frames (5 frames per second) and split into four clips of 25 frames, each resized to $224\times224$ pixels and normalised by the ViT's image processor.
 \end{itemize}
 
-The paradigm generates approximately 200 interaction clips per subject, divided into listening segments, from which EEG labels are drawn, and speaking segments, from which audio and video labels are drawn. This Listen/Speak asymmetry is a documented design feature of the corpus: the EEG signal is recorded during the period in which the participant hears the emotion-laden stimulus, while the audio and video signals are recorded during the participant's response. The emotional intent for each trial is the same across modalities because the cue drives both the response and the listening context, but the two windows are temporally offset within the same interaction.
-
-\subsection{Pre-Processing Pipeline}
-Raw EAV data is pre-processed into pickle files by the scripts in the official EAV repository. The pre-processing steps for each modality are as follows.
-
-\textbf{EEG pre-processing.} The raw 500 Hz EEG signal is first downsampled to 100 Hz by integer-factor decimation: the signal is reshaped and every fifth sample is selected, without an anti-aliasing prefilter. A fifth-order Butterworth bandpass filter with passband 0.5--45 Hz is then applied at the post-downsample rate; this serves both to remove drift and high-frequency noise, and to attenuate any residual aliasing artefacts introduced by the prior naïve decimation. The filtered signal is segmented into non-overlapping five-second windows, yielding segments of shape 30 channels by 500 samples at the 100 Hz post-downsample rate. Each segment is labelled with the emotion class of the corresponding cue. The \texttt{SELECTED\_CLASSES = [1, 3, 5, 7, 9]} constant selects the five listening-task trials corresponding to the five emotion categories.
-
-\textbf{Audio pre-processing.} Raw audio clips are resampled to 16 kHz via \texttt{torchaudio.transforms.Resample}. Each clip is segmented to exactly five seconds (80{,}000 samples) before being passed to the Hugging Face \texttt{AutoFeatureExtractor} for the AST checkpoint, which produces a 128-bin Log-Mel Spectrogram of shape $(\mathrm{time\_frames}, 128)$. Because the segmentation step enforces a fixed five-second clip length, the AST processor's built-in zero-padding for shorter inputs and truncation for longer inputs is not exercised in this pipeline.
-
-\textbf{Vision pre-processing.} Each EAV speaking-segment video clip is recorded at 30 fps for approximately 20 seconds. From the first 600 source frames (the first 20 seconds), every sixth frame is selected, and the first 25 selected frames are retained. This produces 25 frames at an effective 5 fps, covering the first five seconds of the speaking segment. Each frame is resized to $224\times224$ pixels and then normalised to the model's expected mean and variance by the Hugging Face image processor for the ViT checkpoint.
-
-\subsection{Train/Test Split and Trial-Alignment Heuristic}
-\label{sec:split_alignment}
-The EAV repository provides a stratified split via \texttt{EAV\_datasplit.py}. The split parameter \texttt{h\_idx=56} divides each subject's trials so that 70\% (280 trials) are assigned to training and 30\% (120 trials) to testing, stratified by class. With five emotion categories, this yields 56 training trials per class and 24 testing trials per class, for totals of 280 and 120 respectively. The complete per-subject inventory is therefore 400 trials across all five classes.
-
-A necessary condition for the suppression matrix analysis is that the audio, vision, and EEG test splits are drawn from the same set of 120 trials, so that comparing per-modality predictions on a given trial index is comparing predictions on the same interaction. A heuristic alignment check was performed on all 42 subjects before the suppression analysis was executed: for every subject, the per-class trial count in the test split was extracted for each of the three modalities and compared. The result for all 42 subjects was a uniform count of 80 trials per class per modality in the combined train+test set ($80\times5=400$ per subject), with the stratified test split producing exactly 24 trials per class (120 total) for each modality. The heuristic passes unanimously, providing the necessary condition for valid cross-modal trial comparison. It is not a sufficient condition: a stronger element-wise comparison of the label sequences, carried out in the final phase, shows that the sequences are sorted into class blocks, so trial correspondence within a class cannot be verified from the released data (Section~\ref{sec:audit_alignment}). Table \ref{tab:eav_dataset_structure} summarises the full corpus structure.
+For the within-subject protocol, the repository's class-stratified split puts 56 trials per class (280) in training and 24 per class (120) in testing. Before the coherence analysis, the three modalities were checked to contain the same number of trials of each class for every participant, which they do. That check is necessary for trial-by-trial comparison but not sufficient; the stronger check of Section~\ref{sec:audit_alignment} shows that trial correspondence within a class cannot be established from the released files. Table~\ref{tab:eav_dataset_structure} summarises the data.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{EAV dataset structural summary.}
+\caption{The EAV data as used in this thesis.}
 \label{tab:eav_dataset_structure}
 \begin{tabular}{p{5.2cm} p{8.2cm}}
 \hline
-\textbf{Property} & \textbf{Specification} \\
+\textbf{Property} & \textbf{Value} \\
 \hline
-Subjects & 42 (21 male, 21 female) \\
-Emotion categories & 5 (Neutral, Anger, Happiness, Sadness, Calmness) \\
-Total trials per subject & 400 (80 per class) \\
-Training trials & 280 per subject per modality (56 per class) \\
-Testing trials & 120 per subject per modality (24 per class) \\
-EEG channels & 30 (standard 10--20 placement) \\
-EEG original sampling rate & 500 Hz \\
-EEG processed sampling rate & 100 Hz after downsampling \\
-EEG bandpass filter & Butterworth fifth-order, 0.5--45 Hz \\
-EEG segment shape & $(30, 500)$ per trial \\
-Audio sampling rate & 16 kHz \\
-Video frame rate & 30 fps source; 25 frames at 5 fps used for ViT (every 6th frame; first 25 of the speaking segment) \\
-Clip duration & 5 seconds \\
-Chance accuracy & 20.0\% for five-class uniform prediction \\
+Participants & 42 \\
+Classes & 5 (Neutral, Anger, Happiness, Sadness, Calmness) \\
+Trials per participant and modality & 400 (80 per class), five seconds each \\
+Within-subject split & 280 training (56 per class), 120 test (24 per class) \\
+EEG & 30 channels; 500 Hz recorded, 100 Hz used; 0.5--45 Hz; $(30, 500)$ per trial \\
+Audio & 16 kHz; 80{,}000 samples per trial \\
+Video & 25 frames per trial at 5 frames per second, $224\times224$ \\
+Chance accuracy & 20\% \\
 \hline
 \end{tabular}
 \end{table}
 
-\section{Per-Modality Processing Pipelines}
-\subsection{Audio Pipeline: Audio Spectrogram Transformer (AST)}
-\textbf{Architecture.} The Audio Spectrogram Transformer \cite{Gong2021AST} is a pure attention architecture for audio classification. AST treats the Log-Mel Spectrogram of an audio clip as a 2D image: it is split into overlapping $16\times16$ patches with stride 10, each patch is linearly projected to a 768-dimensional token embedding, and a standard ViT encoder with 12 attention layers and 12 heads processes the resulting token sequence together with a prepended \texttt{[CLS]} token. The \texttt{[CLS]} token's final-layer representation serves as the clip-level audio feature.
+\section{Encoders}
 
-\textbf{Pre-trained checkpoint.} The checkpoint used is \texttt{MIT/ast-finetuned-audioset-10-10-0.4593}, an 87-million-parameter model pre-trained on AudioSet, which contains 2 million weakly labelled audio clips across 527 event categories. The breadth of AudioSet covers ambient sounds, speech, music, and environmental audio, making the pre-trained representation broadly useful for downstream audio tasks including speech emotion recognition.
+\textbf{Audio: AST.} The Audio Spectrogram Transformer \cite{Gong2021AST} cuts the log-mel spectrogram into overlapping $16\times16$ patches (stride 10), embeds each as a 768-dimensional token, and passes the sequence through a 12-layer, 12-head transformer. The checkpoint \texttt{MIT/ast-finetuned-audioset-10-10-0.4593} (about 87 million parameters, pre-trained on AudioSet) is loaded with a new five-class output layer. The audio feature is the mean of the final-layer token embeddings (768 dimensions).
 
-\textbf{Adaptation to EAV.} The 527-class classification head is discarded. The model is reloaded with \texttt{AutoModelForAudioClassification.from\_pretrained(..., num\_labels=5, ignore\_mismatched\_sizes=True)}, which simultaneously re-initialises the head with a fresh \texttt{Linear(768, 5)} layer and sets \texttt{model.config.num\_labels = 5}. The loss is computed externally as:
-\begin{equation}
-    \mathcal{L}_{\mathrm{audio}} = \mathrm{CrossEntropyLoss}(z_{\mathrm{audio}}, y),
-\end{equation}
-where $z_{\mathrm{audio}}$ denotes the model logits. This avoids relying on the model's internal loss path, which would read the old configuration and fail.
+\textbf{Vision: ViT.} The Vision Transformer \cite{Dosovitskiy2021ViT} cuts each frame into $16\times16$ patches and processes them with a 12-layer, 12-head transformer. The checkpoint \texttt{dima806/facial\_emotions\_image\_detection}, a ViT-base model (about 86 million parameters) trained for seven facial-emotion classes, is reloaded with a five-class output layer; loading through \texttt{from\_pretrained(num\_labels=5, ignore\_mismatched\_sizes=True)} also updates the model's configuration, which the original EAV trainer failed to do (Chapter~\ref{chap:engineering_challenges}). Each frame's classification-token embedding is computed, and the 25 frame embeddings of a clip are averaged into one 768-dimensional feature.
 
-\textbf{Training protocol.} Training proceeds in two phases. In the frozen phase, the AST backbone parameters are frozen and only the new five-class head is trained for 5 epochs with Adam, learning rate $10^{-4}$, batch size 8. In the fine-tuning phase, all parameters are unfrozen and training continues for a further 5 epochs with learning rate $10^{-5}$ and batch size 8. The total training budget is 5 frozen + 5 fine-tuning = 10 epochs per subject. Best-checkpoint selection is by test accuracy.
+\textbf{EEG: EEGNet.} EEGNet \cite{Lawhern2018EEGNet} is configured with $F_1 = 8$ temporal filters of length 300 samples (three seconds at 100 Hz), depth multiplier $D = 8$ for the depth-wise spatial convolution over the 30 electrodes, $F_2 = 64$ separable filters, and dropout 0.5; it has 74{,}933 parameters. Two average-pooling steps (factors 4 and 8) reduce the 500 time samples to 15, and the flattened $64 \times 15 = 960$-dimensional vector before the output layer is the EEG feature. Two defects in the reference implementation---a weight-constraint hook that replaced a layer's output with its weights, and a trainer that left the model in evaluation mode after the first epoch---were fixed before any reported run (Chapter~\ref{chap:engineering_challenges}).
 
-\textbf{Feature extraction.} After training, the \texttt{[CLS]} token representation of dimension 768 is extracted for each test and training trial by running the backbone forward without the classification head. These vectors are saved as the audio feature matrix, of shape $(N_{\mathrm{trials}}, 768)$, for Stage C fusion training.
-
-\subsection{Vision Pipeline: Facial-Emotion Vision Transformer (ViT)}
-\textbf{Architecture.} The Vision Transformer \cite{Dosovitskiy2021ViT} processes an image by splitting it into non-overlapping $16\times16$ patches, linearly projecting each patch to a 768-dimensional embedding, and processing the patch-token sequence with a 12-layer, 12-head self-attention encoder. As with AST, the \texttt{[CLS]} token's final-layer representation serves as the clip-level visual feature.
-
-\textbf{Pre-trained checkpoint.} The checkpoint is \texttt{dima806/facial\_emotions\_image\_detection}, a ViT-base model fine-tuned on a composite facial expression dataset for 7-class classification (Angry, Disgust, Fear, Happy, Neutral, Sad, Surprise). The 7-class classification head is replaced using the \texttt{from\_pretrained(num\_labels=5, ignore\_mismatched\_sizes=True)} idiom. This is not merely a convenience: the original EAV vision trainer replaced the head manually by setting \texttt{model.classifier = Linear(hidden, 5)} and \texttt{model.num\_labels = 5}, but did not update \texttt{model.config.num\_labels}. The \texttt{from\_pretrained} idiom resolves this by also updating the configuration.
-
-\textbf{Clip-level representation.} Each five-second clip provides 25 uniformly sampled frames at $224\times224$ pixels. Each frame is independently passed through the ViT backbone to produce a 768-dimensional \texttt{[CLS]} embedding. The 25 per-frame embeddings are then averaged to produce a single 768-dimensional clip-level representation. This bag-of-frames averaging is simple but effective for short five-second clips where the dominant emotional expression is relatively stable.
-
-\textbf{Training protocol.} The backbone is frozen for 3 epochs to initialise the new head, then all parameters are unfrozen for a further 2 fine-tuning epochs. Learning rates are $10^{-4}$ in the frozen phase and $10^{-5}$ in the fine-tune phase, with batch size 8.
-
-\textbf{RAM management.} The original EAV vision trainer pre-processed all frames for a subject in a single operation, building a Python list of approximately 10,000 tensors and invoking \texttt{torch.stack(list).to(device)}. On Colab Free, the stack operation alone consumed approximately 8 GB and silently killed the kernel. The fix processes frames in batches of 64, keeps the stacked batch on CPU, and moves each batch to GPU only at training time via the DataLoader.
-
-\textbf{Feature extraction.} The 768-dimensional clip-level embedding, computed as the mean of 25 per-frame \texttt{[CLS]} tokens, is saved per trial per subject for Stage C.
-
-\subsection{EEG Pipeline: EEGNet}
-\textbf{Architecture.} EEGNet \cite{Lawhern2018EEGNet} is a compact depthwise separable CNN designed specifically for EEG signal classification across arbitrary electrode montages. The EEGNet implementation used here is parameterised as follows: $F_1=8$, $D=8$, $F_2=64$, \texttt{kernLength=300}, \texttt{Chans=30}, \texttt{Samples=500}, and \texttt{dropoutRate=0.5}. The forward pass comprises two blocks.
-
-\textbf{Block 1: Temporal and Spatial Filtering.} The input tensor has shape $(B, 1, 30, 500)$.
-\begin{enumerate}
-    \item \texttt{Conv2d(1, 8, kernel=(1, 300), padding='same')} performs temporal convolution, extracting $F_1=8$ temporal filter responses. Kernel length 300 samples corresponds to a three-second temporal scale at 100 Hz.
-    \item \texttt{BatchNorm2d(8)} and ELU activation are applied.
-    \item \texttt{DepthwiseConv2d(8, 64, kernel=(30, 1), groups=8)} performs spatial convolution combining information across all 30 channels. The output shape is $(B, 64, 1, 500)$.
-    \item \texttt{BatchNorm2d(64)}, ELU, \texttt{AvgPool2d((1, 4))}, and \texttt{Dropout(0.5)} reduce the temporal resolution to 125 samples.
-\end{enumerate}
-
-\textbf{Block 2: Pointwise Feature Extraction.} Operating on $(B, 64, 1, 125)$:
-\begin{enumerate}
-    \item \texttt{Conv2d(64, 64, kernel=(1, 16), padding='same')} performs separable pointwise convolution.
-    \item \texttt{BatchNorm2d(64)}, ELU, \texttt{AvgPool2d((1, 8))}, and \texttt{Dropout(0.5)} reduce the temporal resolution to 15 samples.
-    \item Flattening produces a vector of length $64\times(500/4/8)=64\times15=960$.
-    \item \texttt{Linear(960, 5)} is the final classification head.
-\end{enumerate}
-The penultimate 960-dimensional flattened representation is the EEG feature vector used in Stage C fusion training.
-
-\textbf{Bug fixes note.} Two EEGNet-specific bugs were identified and resolved during this thesis. The first, a forward-hook implementation defect, caused all EEGNet training to fail with a BatchNorm dimension error. PyTorch's \texttt{register\_forward\_hook} protocol substitutes the hook's return value as the layer's output if the hook returns a non-\texttt{None} tensor. The original EAV repository used lambda hooks in which \texttt{renorm\_} is in-place but returns the modified weight tensor. The lambda propagated this tensor as the hook's return value, and PyTorch replaced the depthwise convolution's output with the weight tensor, causing the downstream BatchNorm to crash. The fix extracts the hook into a named function that returns \texttt{None} explicitly.
-
-A second training bug was identified in the shared trainer: \texttt{self.model.train()} was called once before the outer epoch loop, but \texttt{validate()} called at the end of each epoch switches the model to evaluation mode. From epoch 2 onwards, training was executed with BatchNorm layers in evaluation mode and all Dropout layers disabled. The fix relocates \texttt{self.model.train()} to the beginning of the epoch loop.
-
-Table \ref{tab:encoder_specs} summarises the three encoders.
-
-\begin{table}[htbp]
-\centering
-\scriptsize
-\caption{Per-modality encoder specifications.}
-\label{tab:encoder_specs}
-\begin{tabular}{p{2.6cm} p{3.5cm} p{3.5cm} p{3.4cm}}
-\hline
-\textbf{Property} & \textbf{Audio (AST)} & \textbf{Vision (ViT)} & \textbf{EEG (EEGNet)} \\
-\hline
-Architecture & Pure transformer & Pure transformer & Depthwise separable CNN \\
-Pre-training & AudioSet (2M clips, 527 classes) & Facial expressions (7-class) & None; trained from scratch \\
-Trainable parameters & 87 million & 86 million & Approximately 2.2 million \\
-Input representation & 128-bin Log-Mel Spectrogram & 25 frames of $224\times224$ & $(30, 500)$ EEG segment \\
-Output feature & 768-dim \texttt{[CLS]} token & 768-dim mean \texttt{[CLS]} token & 960-dim flattened vector \\
-Frozen epochs & 5 & 3 & N/A \\
-Fine-tune/full epochs & 5 & 2 & 350 \\
-Optimizer/LR & Adam, $10^{-4}$ to $10^{-5}$ & Adam, $10^{-4}$ to $10^{-5}$ & Adam, $10^{-4}$ \\
-\hline
-\end{tabular}
-\end{table}
-
-\section{Trimodal Cross-Modal Attention Fusion Module}
-\subsection{Motivation and Design Rationale}
-\label{sec:fusion_design_rationale}
-The \texttt{TrimodalAttentionFusion} module takes the three per-modality pre-classifier feature vectors as input and produces a five-class emotion prediction plus four auxiliary named embedding outputs. Its design follows from two constraints.
-
-First, the encoders produce single pooled vectors per clip rather than token sequences. Given that each modality contributes exactly one token representation per clip, the feature resolution available to the fusion module is limited to single pooled vectors.
-
-Second, the reference architecture \cite{Lee2024MERCL} employs six directional pairwise cross-modal attention operations: audio-to-vision, vision-to-audio, vision-to-EEG, EEG-to-vision, audio-to-EEG, and EEG-to-audio. This design is motivated by sequence-level modality representations produced by residual-TCN encoders. At single-token-per-modality resolution, pairwise cross-attention reduces algebraically to a learned linear projection. Self-attention over a three-token sequence performs the same cross-modal mixing at this resolution, with cleaner code, fewer parameters, and no loss of expressive power.
-
-\subsection{Architectural Specification}
-The complete forward pass of \texttt{TrimodalAttentionFusion} proceeds through five stages, illustrated in Figure \ref{fig:attention_architecture}.
-
-\begin{figure}[htbp]
-\centering
-\IfFileExists{images/fig_4_2_attention_arch.png}{\includegraphics[width=0.9\textwidth]{images/fig_4_2_attention_arch.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_4\_2\_attention\_architecture.png}. Upload the original TrimodalAttentionFusion architecture diagram here.}}}
-\caption{TrimodalAttentionFusion architecture: per-modality linear projections to $D=256$, modality-type embeddings, two-layer transformer encoder, mean pooling, and MLP classification head.}
-\label{fig:attention_architecture}
-\end{figure}
-
-\textbf{Stage 1---Per-Modality Projection.} Three independent linear layers project the modality-specific feature vectors to a common embedding dimension $D=256$:
-\begin{equation}
-\begin{aligned}
-    h_a &= W_a x_a + b_a, && x_a \in \mathrm{R}^{768}, \\
-    h_v &= W_v x_v + b_v, && x_v \in \mathrm{R}^{768}, \\
-    h_e &= W_e x_e + b_e, && x_e \in \mathrm{R}^{960},
-\end{aligned}
-\end{equation}
-where $a$, $v$, and $e$ denote audio, vision, and EEG respectively. The projections are independent, allowing each modality's raw feature space to be transformed by a projection tailored to its statistics.
-
-\textbf{Stage 2---Modality-Type Embedding.} A learnable parameter matrix $E_{\mathrm{mod}}\in\mathrm{R}^{3\times256}$ is initialised to small random values with $\sigma=0.02$ and added element-wise to the projected vectors. Index 0 is added to the audio projection, index 1 to the vision projection, and index 2 to the EEG projection:
-\begin{equation}
-    u_m = h_m + E_{\mathrm{mod}}[m].
-\end{equation}
-These embeddings serve the same role as positional embeddings in a sequence transformer, enabling the attention mechanism to learn modality-specific attention patterns.
-
-\textbf{Stage 3---Transformer Encoder.} The three 256-dimensional modality tokens are stacked into a sequence:
-\begin{equation}
-    U = [u_a; u_v; u_e] \in \mathrm{R}^{B\times3\times256},
-\end{equation}
-and processed by a two-layer transformer encoder with 8 attention heads, feedforward dimension 1024, GELU activation, Pre-LayerNorm normalisation, and dropout 0.1. After the transformer encoder, a final \texttt{LayerNorm(256)} is applied to the output sequence.
-
-\textbf{Stage 4---Mean Pooling.} The three post-attention tokens are averaged across the sequence dimension to produce a single fused representation:
-\begin{equation}
-    f = \frac{1}{3}\sum_{m\in\{a,v,e\}} \tilde{u}_m,
-\end{equation}
-where $\tilde{u}_m$ denotes the post-transformer token for modality $m$. This fused vector is returned as \texttt{fused\_embed}; the three unpooled tokens are returned separately as \texttt{audio\_embed}, \texttt{vision\_embed}, and \texttt{eeg\_embed}.
-
-\textbf{Stage 5---MLP Classification Head.} The fused representation is passed through:
-\begin{equation}
-    z = W_2\,\mathrm{Dropout}\left(\mathrm{GELU}(W_1 f + b_1)\right) + b_2,
-\end{equation}
-producing the raw five-class logit vector. Cross-entropy loss is computed on these raw logits during training.
-
-The module has approximately 2,285,573 trainable parameters: 638,976 in projection layers, 768 in modality embeddings, approximately 1,577,984 in the two-layer transformer encoder, 512 in post-normalisation, and 67,333 in the MLP head.
-
-\subsection{Architectural Guarantee: Finite Output Under Zero-EEG Input}
-A formal contract test embedded in the module verifies the zero-EEG inference property:
-
-\begin{verbatim}
-out_zero = model(x_audio, x_vision, torch.zeros(B, 960))
-assert torch.isfinite(out_zero["logits"]).all()
-assert out_zero["logits"].norm() > 0.01
-\end{verbatim}
-
-When $x_e$ is a zero tensor, Stage 1 produces:
-\begin{equation}
-    h_e = W_e\cdot 0 + b_e = b_e.
-\end{equation}
-Stage 2 then adds the EEG modality embedding:
-\begin{equation}
-    u_e = b_e + E_{\mathrm{mod}}[e].
-\end{equation}
-This is a deterministic but non-trivial vector. The transformer can therefore learn, during modality-dropout training, to suppress the zero-EEG token's contribution to the fused embedding when only audio and vision are present. The guarantee is architectural, not learned: it holds even before modality-dropout training.
+\textbf{Within-subject training.} Each encoder is trained separately for every participant on their 280 training trials, and the final epoch is kept; no epoch is chosen using test data. AST and ViT first train only the new output layer with the backbone frozen, then fine-tune all weights (AdamW; learning rate $5\times10^{-4}$ then $5\times10^{-6}$; batch size 8 for AST and 32 for ViT). EEGNet is trained from scratch with Adam at learning rate $10^{-5}$, batch size 32, for 350 epochs. The cross-subject variant of this training is described in Section~\ref{sec:cs_implementation}.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{TrimodalAttentionFusion hyperparameters and training configuration.}
+\caption{The three encoders.}
+\label{tab:encoder_specs}
+\begin{tabular}{p{2.8cm} p{3.4cm} p{3.4cm} p{3.4cm}}
+\hline
+& \textbf{Audio (AST)} & \textbf{Vision (ViT)} & \textbf{EEG (EEGNet)} \\
+\hline
+Type & Transformer & Transformer & Compact CNN \\
+Pre-training & AudioSet & 7-class facial emotion & None \\
+Parameters & $\approx$87 M & $\approx$86 M & 74{,}933 \\
+Input per trial & 128-band log-mel & 25 frames, $224\times224$ & $30 \times 500$ \\
+Feature & 768, token mean & 768, frame mean of CLS & 960, flattened \\
+Within-subject epochs & 5 frozen + 5 & 3 frozen + 2 & 350 \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Fusion Methods}
+
+\subsection{Why Self-Attention over Three Tokens}
+\label{sec:fusion_design_rationale}
+Lee, Kim and Kim \cite{Lee2024MERCL} fuse three modalities with six directional cross-attention blocks, each letting one modality's sequence of tokens attend to another's. Here each encoder yields a single pooled vector per trial, so every modality is one token. Cross-attention from one single token to another reduces to a learned linear map, and six such maps add parameters without adding expressiveness. The fusion module therefore treats the three modality vectors as a three-token sequence and applies standard self-attention, in which every token attends to all three. Moving to sequence-level features and pairwise cross-attention would be the natural extension, but it requires re-extracting features for every fold and tuning a new architecture, and was not attempted (Chapter~\ref{chap:conclusion}).
+
+\subsection{The Attention Module}
+\texttt{TrimodalAttentionFusion} (Figure~\ref{fig:attention_architecture}) computes:
+\begin{enumerate}
+    \item a separate linear projection of each modality to a common width $D = 256$,
+    \begin{equation}
+        h_a = W_a x_a + b_a, \quad h_v = W_v x_v + b_v, \quad h_e = W_e x_e + b_e,
+    \end{equation}
+    with $x_a, x_v \in \mathbb{R}^{768}$ and $x_e \in \mathbb{R}^{960}$;
+    \item the addition of a learned modality embedding, $u_m = h_m + E[m]$ with $E \in \mathbb{R}^{3\times256}$ initialised with standard deviation 0.02, so that the attention layers can tell the tokens apart;
+    \item two transformer encoder layers over the sequence $[u_a; u_v; u_e]$ (8 heads, feed-forward width 1024, GELU, normalisation before each sub-layer, dropout 0.1), followed by layer normalisation;
+    \item the mean of the three output tokens, $f = \tfrac{1}{3}(\tilde u_a + \tilde u_v + \tilde u_e)$;
+    \item a two-layer classifier, $z = W_2\,\mathrm{Dropout}(\mathrm{GELU}(W_1 f + b_1)) + b_2$, giving five logits trained with cross-entropy.
+\end{enumerate}
+The module has 2{,}287{,}621 parameters. Besides the logits, it returns the three post-attention tokens and $f$.
+
+\begin{figure}[htbp]
+\centering
+\IfFileExists{images/fig_4_2_attention_arch.png}{\includegraphics[width=0.9\textwidth]{images/fig_4_2_attention_arch.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_4\_2\_attention\_arch.png}.}}}
+\caption{\texttt{TrimodalAttentionFusion}: projections to $D = 256$, modality embeddings, two transformer layers, mean pooling and classifier.}
+\label{fig:attention_architecture}
+\end{figure}
+
+With EEG absent, $x_e = 0$ and the EEG token becomes $b_e + E[e]$: a fixed, finite vector. The module therefore always produces valid output without EEG, and modality-dropout training (Section~\ref{sec:modality_dropout}) teaches it to rely on the other two tokens in that case.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Attention module configuration and within-subject training settings.}
 \label{tab:fusion_hyperparameters}
 \begin{tabular}{p{5.4cm} p{7.8cm}}
 \hline
-\textbf{Hyperparameter} & \textbf{Value} \\
+\textbf{Setting} & \textbf{Value} \\
 \hline
-Common embedding dimension & $D=256$ \\
-Modality-type embedding shape & $(3, 256)$ \\
-Transformer encoder layers & 2 \\
-Attention heads per layer & 8 \\
-Feedforward dimension & 1024 \\
-Activation & GELU \\
-Normalisation & Pre-LayerNorm (\texttt{norm\_first=True}) \\
-Dropout & 0.1 in attention and feedforward sublayers \\
-MLP head & \texttt{Linear(256, 256)} $\rightarrow$ GELU $\rightarrow$ Dropout(0.1) $\rightarrow$ \texttt{Linear(256, 5)} \\
-Total trainable parameters & Approximately 2.28 million \\
-Fusion training epochs & 80 \\
-Optimiser & AdamW \\
-Learning rate & $10^{-3}$ \\
-LR schedule & Cosine annealing \\
-Batch size & 32 \\
+Token width & 256 \\
+Transformer layers / heads / feed-forward width & 2 / 8 / 1024 \\
+Activation, normalisation, dropout & GELU; pre-layer normalisation; 0.1 \\
+Classifier & $256 \rightarrow 256 \rightarrow 5$ \\
+Parameters & 2{,}287{,}621 \\
+Optimiser & AdamW, learning rate $10^{-3}$, weight decay $10^{-4}$, cosine schedule \\
+Batch size and epochs & 32; 80 \\
 Epoch selection & None; the final epoch is evaluated \\
 \hline
 \end{tabular}
 \end{table}
 
-\section{Naive Late-Fusion Baseline}
-The naive late-fusion baseline provides the primary comparison point for the \texttt{TrimodalAttentionFusion} module. It requires no learned parameters and operates directly on the per-modality test logits saved during Stage A.
+\subsection{Concatenation Baseline}
+\label{sec:concat_baseline}
+To separate the value of attention from the value of learning a fusion at all, a multi-layer perceptron is trained on the concatenated features: $2{,}496 \rightarrow 512 \rightarrow 128 \rightarrow 5$ with GELU and dropout 0.1, 1{,}349{,}765 parameters, and the same training settings as the attention module.
 
-For each subject and each test trial index $t$, the computation is:
+\subsection{Naive Late Fusion}
+\label{sec:naive_method}
+The parameter-free baseline averages the three encoders' class probabilities and predicts the most probable class:
 \begin{equation}
-    p_m(t) = \mathrm{softmax}(z_m(t)), \quad m\in\{a,v,e\},
+    \hat{y} = \arg\max_k \tfrac{1}{3}\big(\mathrm{softmax}(z_a) + \mathrm{softmax}(z_v) + \mathrm{softmax}(z_e)\big)_k .
 \end{equation}
-\begin{equation}
-    \bar{p}(t) = \frac{p_a(t)+p_v(t)+p_e(t)}{3},
-\end{equation}
-\begin{equation}
-    \hat{y}(t) = \arg\max_k \bar{p}_k(t).
-\end{equation}
-The mean-softmax variant is the canonical choice because it treats each modality as an independent vote weighted by its confidence, without requiring any learning of modality weights. Two alternative variants are also implemented but not reported as primary results: sum-of-log-softmax, equivalent to the product-of-probabilities rule, and hard majority voting with tie-breaking by confidence.
+Because a confident modality contributes a peaked distribution, the average is implicitly weighted by confidence. A learned fusion method that cannot beat it has not justified its parameters.
 
-Any fusion architecture that fails to beat mean-softmax averaging is providing no measurable benefit beyond what can be obtained by treating the three modalities as three independent, equally weighted experts. In EAV's within-subject, 280-training-trial regime, this turns out to be a stringent comparison point. Beyond accuracy, the baseline script computes the symmetric KL divergence between each pair of per-modality softmax distributions for each test trial, saving them for the coherence analysis in Section \ref{sec:coherence_analysis}.
+\subsection{Modality Dropout}
+\label{sec:modality_dropout}
+Following Chumachenko et al.\ \cite{Chumachenko2022SelfAttention}, a second copy of the attention module is trained with softhard modality dropout. For each training sample, with probability 0.5, one of the three modalities chosen at random is set to zero and the remaining ones are scaled by $3/n_{\mathrm{active}}$ so that the input's expected magnitude does not change:
+\begin{equation}
+  \tilde{x}^{(m)} = \frac{3\, k_m}{\sum_{m'} k_{m'}}\, x^{(m)}, \qquad k_m \in \{0, 1\}.
+\end{equation}
+The model thus sees complete inputs about half the time and each two-modality combination about a sixth of the time, including the audio-visual combination a user without an EEG headset would provide. Accuracy with EEG set to zero at test time is the robustness measure. The Pre-Thesis~II report described this scheme incorrectly (Section~\ref{sec:p3_challenges}, C20).
 
-\section{Cross-Modal Affective Coherence Analysis}
+\section{Coherence Analysis}
 \label{sec:coherence_analysis}
-The suppression matrix is computed from the per-modality test-set predictions pooled across all 42 subjects' 120 test trials each, for a total of 5,040 trials.
-
-A trial $t$ from subject $s$ qualifies as a suppression event if and only if:
+The coherence analysis asks how often, and in which direction, the EEG classifier disagrees with an agreeing pair of audio and vision classifiers. A trial $t$ of participant $s$ counts as an event when
 \begin{equation}
 S(s,t)=1 \Longleftrightarrow
-\begin{cases}
-\hat{y}_{a}(s,t)=\hat{y}_{v}(s,t), & \text{external audio-vision consensus},\\
-\hat{y}_{e}(s,t)\neq\hat{y}_{a}(s,t), & \text{internal EEG divergence},\\
-\max_k p_{e,k}(s,t)\geq0.5, & \text{confident EEG prediction}.
-\end{cases}
+\hat{y}_{a}(s,t)=\hat{y}_{v}(s,t) \;\land\; \hat{y}_{e}(s,t)\neq\hat{y}_{a}(s,t) \;\land\; \max_k p_{e,k}(s,t)\geq0.5,
 \end{equation}
-Condition 1 ensures that a clear external signal exists. Conditions 2 and 3 together ensure that a confident, internally divergent signal also exists. The threshold 0.5 is conservative: it requires EEG to place more probability mass on one class than on all other four classes combined, before the divergence is counted as a suppression event. Trials failing any condition are excluded from the matrix.
+that is, audio and vision agree, EEG predicts something else, and EEG gives its choice at least half the probability mass. Events are counted in a $5\times5$ matrix whose rows are the audio-visual class and columns the EEG class (Figure~\ref{fig:suppression_criteria}):
+\begin{equation}
+    M_{r,c}=\sum_{s}\sum_{t}\mathbf{1}\left[S(s,t)=1 \land \hat{y}_{a}(s,t)=r \land \hat{y}_{e}(s,t)=c\right].
+\end{equation}
 
 \begin{figure}[htbp]
 \centering
-\IfFileExists{images/fig_4_3_suppression_criteria.png}{\includegraphics[width=0.9\textwidth]{images/fig_4_3_suppression_criteria.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_4\_3\_suppression\_criteria.png}. Upload the original suppression-event criteria diagram here.}}}
-\caption{Suppression event selection criteria: audio-vision consensus on emotion class $E_{av}$, EEG prediction $E_{eeg}\neq E_{av}$, and EEG top-1 confidence $\geq0.5$.}
+\IfFileExists{images/fig_4_3_suppression_criteria.png}{\includegraphics[width=0.9\textwidth]{images/fig_4_3_suppression_criteria.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_4\_3\_suppression\_criteria.png}.}}}
+\caption{Criteria for a coherence event: audio and vision agree, EEG disagrees, and EEG is at least 50\% confident.}
 \label{fig:suppression_criteria}
 \end{figure}
 
-Each qualifying trial contributes a unit count to cell $(r,c)$ of the $5\times5$ matrix, where $r=\hat{y}_{a}(s,t)$ is the external consensus row index and $c=\hat{y}_{e}(s,t)$ is the internal EEG prediction column index:
-\begin{equation}
-    M_{r,c}=\sum_{s=1}^{42}\sum_{t=1}^{120}\mathbf{1}\left[S(s,t)=1 \land \hat{y}_{a}(s,t)=r \land \hat{y}_{e}(s,t)=c\right].
-\end{equation}
-The diagonal is zero by construction because EEG agreement with the external consensus is excluded by the second criterion.
-
-To verify that matrix patterns are cross-population rather than driven by individual outlier subjects, the per-subject contribution to each cell is extracted. A pattern is classified as cross-population if it is contributed by more than five distinct subjects and no single subject contributes more than 40\% of the cell total.
-
-Cross-population consistency does not establish that a pattern reflects the participants rather than the classifiers. In a cue-based corpus a matrix cell can be populated entirely by one classifier's systematic errors. Each cell is therefore compared against a class-conditional permutation null: within each participant and each cued class, EEG's (prediction, confidence) pairs are shuffled across trials while audio and vision are held fixed, and the matrix is recomputed 2{,}000 times. The shuffle preserves each classifier's per-class confusion exactly and destroys only the trial-level pairing between the modalities, so a cell that exceeds the null carries coupling between audio-visual and EEG predictions that independent errors cannot produce. Two-sided permutation $p$-values are Holm-corrected over the 20 off-diagonal cells. Results are in Section~\ref{sec:audit_suppression}.
-
-\section{Modality Dropout and Robustness}
-\label{sec:modality_dropout}
-To enable meaningful inference when EEG is unavailable---as will be the case in any deployment scenario without an EEG headset---the fusion module is trained under a modality-dropout regime adapted from Chumachenko, Iosifidis and Gabbouj \cite{Chumachenko2022SelfAttention}.
-
-The softhard scheme operates on each training sample independently. With probability $p = 0.5$ the sample is left intact; otherwise one of the three modalities is chosen uniformly at random and its feature vector is replaced by zeros. The surviving modalities are then rescaled by $3/n_{\mathrm{active}}$, where $n_{\mathrm{active}}$ is the number of modalities present, so that the expected input energy per sample does not depend on how many modalities were dropped:
-\begin{equation}
-  \tilde{x}^{(m)} = \frac{3\, k_m}{\sum_{m'} k_{m'}}\, x^{(m)}, \qquad k_m \in \{0, 1\},
-\end{equation}
-where $k_m = 0$ for the dropped modality and 1 otherwise. Labels are unchanged, and the batch size is unchanged. Over training, the module therefore sees each sample with all three modalities about half the time and with each two-modality subset about one-sixth of the time, forcing each modality token to carry evidence that is useful on its own. Dropout is applied only during training. (The Pre-Thesis~II report described a different scheme, in which every batch was expanded into four sub-batches; that description did not match the implementation that produced its results, and is corrected here; see Section~\ref{sec:p3_challenges}, C20.)
-
-The configuration that matters most for deployment is the audio-visual one: EEG zeroed, audio and vision present, as it would be for any user without an EEG headset. Because EEG is dropped in about one-sixth of training samples, the module is trained on this condition directly while still being trained on complete inputs. After training, accuracy with EEG zeroed at inference is the primary robustness metric (Sections~\ref{sec:modality_dropout_results} and~\ref{sec:cal_ranking}).
+A matrix built this way mixes two sources: genuine differences between what the participant showed and what their EEG reflects, and the EEG classifier's own mistakes. To separate them, each cell is compared with a null distribution. Within every participant and every cued class, EEG's (prediction, confidence) pairs are shuffled across trials 2{,}000 times while audio and vision stay fixed. This keeps every classifier's class-by-class error pattern exactly and destroys only the trial-level pairing between modalities, so a cell above the null reflects coupling that independent errors cannot produce. Two-sided permutation $p$-values are corrected with Holm's method over the 20 off-diagonal cells. The results are in Section~\ref{sec:audit_suppression}.
 
 \section{Evaluation Protocols}
 \label{sec:evaluation_protocols}
 
-Three evaluation protocols are used in this report, each answering a different question.
+Four protocols are used, each answering a different question.
 
-\textbf{Within-subject} (Chapter~\ref{chap:within}). Each participant's 400 trials are split 280/120 by the EAV repository's stratified split; encoders and fusion heads are trained on a participant's 280 training trials and tested on their 120 test trials; results are averaged over the 42 participants. This answers how well the system recognises emotion in a person it has already studied, and it is the protocol used by all prior trimodal fusion work on EAV.
+\textbf{Within-subject} (Chapter~\ref{chap:within}): encoders and heads are trained on one participant's 280 training trials and tested on their 120 test trials, averaged over 42 participants. This measures recognition of a person the system has already studied, and is the protocol of all previous fusion work on EAV.
 
-\textbf{Cross-subject} (Chapter~\ref{chap:crosssubject}). Five-fold subject-wise cross-validation: every participant is held out exactly once, and the encoders and fusion heads for that fold are trained only on the other participants, with epoch selection on three inner-validation participants. This answers how well the system recognises emotion in a person it has never seen.
+\textbf{Cross-subject} (Chapter~\ref{chap:crosssubject}): five-fold cross-validation over participants, with encoders and heads retrained for every fold on the other participants and epochs chosen on three held-aside training participants. This measures recognition of a new person.
 
-\textbf{Cross-subject with calibration} (Chapter~\ref{chap:calibration}). As cross-subject, but each participant's fusion features are standardised with statistics from a short unlabelled recording of that participant. This answers how well the system works for a new user who provides a brief enrolment session without labels.
+\textbf{Cross-subject with calibration} (Chapter~\ref{chap:calibration}): as above, but each participant's features are standardised with statistics from a short unlabelled recording of that participant. This measures recognition of a new user who provides a brief enrolment session.
 
-Under every protocol, the reported epoch of every trained model is chosen without reference to the data it is scored on.
+\textbf{Cross-subject with labelled calibration} (Chapter~\ref{chap:calibration}): as above, with the enrolment clips labelled and used to fine-tune the fusion head.
 
+In every protocol, the reported epoch of every trained model is chosen without looking at the data it is scored on. Statistical methods are described in Section~\ref{sec:statistical_analysis}.
+
+\section{Implementation}
+
+\subsection{Workflow and Storage}
+\label{sec:path_configuration}
+Code was written on machines without a usable GPU, versioned in the GitHub repository \texttt{shafinmuffinn/thesis\_p2}, and pulled into Google Colab sessions for training (Figure~\ref{fig:workflow}). Data, checkpoints, cached features, logits and result tables live on Google Drive, which Colab mounts. One module, \texttt{paths.py}, resolves every location from environment variables (\texttt{THESIS\_ROOT}, \texttt{EAV\_PICKLES}, \texttt{CHECKPOINTS}, \texttt{RESULTS}, \texttt{PRETRAINED}), set by the first cell of each Colab notebook or by the local run configuration, so no script contains a hard-coded path. Pre-trained model weights are cached on Drive so they are downloaded only once.
+
+\begin{figure}[htbp]
+\centering
+\IfFileExists{images/fig_5_1_workflow.png}{\includegraphics[width=\textwidth]{images/fig_5_1_workflow.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_5\_1\_workflow.png}.}}}
+\caption{Development workflow: code authored locally and versioned on GitHub, executed on Colab GPUs, with data and results persisted on Google Drive.}
+\label{fig:workflow}
+\end{figure}
+
+Every stage checks for its own outputs before starting and skips work already done, so a disconnected session loses at most the participant or fold in progress. The per-modality logits needed by naive late fusion and the coherence analysis were not saved by the first within-subject rollout; they were regenerated afterwards from the saved encoder weights (\texttt{compute\_per\_modality\_logits.py}, Section~\ref{sec:c9}). The cross-subject pipeline saves features, logits and trained heads in the same pass.
+
+\subsection{Epoch Budgets and Cost}
+\label{sec:epoch_budget}
+The EAV repository's default budgets (AST 10 frozen + 15 fine-tuning epochs; ViT 10 + 5) were reduced after a three-participant pilot. AST's training accuracy saturated within five fine-tuning epochs and further epochs did not improve test accuracy, so its budget became 5 + 5. The facial-emotion ViT starts close to the task and reached its best accuracy within two fine-tuning epochs, so its budget became 3 + 2. EEGNet, trained from scratch, kept 350 epochs. These choices were informed by the pilot participants' test curves; Section~\ref{sec:audit_selection} discusses this.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Approximate within-subject cost per participant on the Colab L4 GPU.}
+\label{tab:training_times}
+\begin{tabular}{p{3.4cm} p{6.6cm} p{3.3cm}}
+\hline
+\textbf{Stage} & \textbf{Step} & \textbf{Time} \\
+\hline
+A & AST, 5 + 5 epochs & $\approx$5 min \\
+A & ViT, 3 + 2 epochs & $\approx$4 min \\
+A & EEGNet, 350 epochs & $\approx$1 min \\
+B & Feature extraction, three modalities & $\approx$1 min \\
+C & Fusion heads & $\approx$1 min \\
+\hline
+\end{tabular}
+\end{table}
+
+At about 12 minutes per participant, the 42-participant rollout needed roughly 8.5 hours of computation and about 12 hours of session time including set-up and the logit regeneration.
+
+\subsection{Analysis Scripts}
+\label{sec:p3_scripts}
+Table~\ref{tab:p3_scripts} lists the scripts behind Chapters~\ref{chap:within}--\ref{chap:audit}. Apart from \texttt{cv\_pipeline.py}, each runs on cached features, logits or trained heads without retraining an encoder. Each experiment added in the final phase states its design, primary measure and test family in its own documentation, committed to the repository before it was run.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Analysis scripts, their outputs, and where results are reported.}
+\label{tab:p3_scripts}
+\begin{tabular}{p{4.1cm} p{4.9cm} p{4.5cm}}
+\hline
+\textbf{Script} & \textbf{Output} & \textbf{Reported in} \\
+\hline
+\texttt{cv\_pipeline.py} & \texttt{cv5\_fusion*.csv} & Chapters~\ref{chap:crosssubject}, \ref{chap:calibration}; Section~\ref{sec:cal_per_modality} \\
+\texttt{calibration\_study.py} & \texttt{calibration\_study.csv} & Section~\ref{sec:cal_disjoint} \\
+\texttt{calibrated\_naive.py} & \texttt{calibrated\_naive.csv} & Section~\ref{sec:cal_baseline} \\
+\texttt{fewshot\_calibration.py} & \texttt{fewshot\_calibration.csv} & Section~\ref{sec:cal_labelled} \\
+\texttt{labelled\_naive.py} & \texttt{labelled\_naive.csv} & Section~\ref{sec:cal_labelled} \\
+\texttt{identity\_probe.py} & \texttt{identity\_probe.csv} & Section~\ref{sec:cal_mechanism} \\
+\texttt{attention\_analysis.py} & \texttt{attention\_analysis.csv} & Section~\ref{sec:cal_attention} \\
+\texttt{dynamic\_late\_fusion.py} & console summary & Section~\ref{sec:cal_negative} \\
+\texttt{p2\_leakfree.py} & \texttt{p2\_leakfree.csv} & Chapter~\ref{chap:within}; Section~\ref{sec:audit_selection} \\
+\texttt{label\_sequence\_check.py} & console summary & Section~\ref{sec:audit_alignment} \\
+\texttt{suppression\_audit.py} & console summary & Section~\ref{sec:audit_suppression} \\
+\texttt{p3\_stats.py} & \texttt{p3\_stats/*.csv} & Corrected tests and intervals \\
+\texttt{make\_p3\_figures.py} & \texttt{p3\_figures/*.png} & Final-phase figures \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Software and Reproducibility}
+\label{sec:software}
+The experiments used Python 3.10, PyTorch 2.10 and Hugging Face Transformers 4.x, with NumPy, SciPy, scikit-learn, librosa and OpenCV at the versions provided by Colab at the time (Table~\ref{tab:software_environment}). Reproducing the results requires the EAV files, available from the dataset's authors on request \cite{Lee2024EAV}; the code at the repository above; the environment variables described earlier; and a GPU with at least 16 GB of memory for encoder training. Encoder training on a GPU is not bit-for-bit deterministic, but every number in Chapters~\ref{chap:within}--\ref{chap:audit} is computed from saved artefacts, and those computations are deterministic.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Software environment.}
+\label{tab:software_environment}
+\begin{tabular}{p{5cm} p{6cm}}
+\hline
+\textbf{Component} & \textbf{Version} \\
+\hline
+Python & 3.10 \\
+PyTorch & 2.10 \\
+Hugging Face Transformers & 4.x \\
+NumPy, SciPy, scikit-learn, librosa, OpenCV & Colab defaults at the time of running \\
+\hline
+\end{tabular}
+\end{table}
