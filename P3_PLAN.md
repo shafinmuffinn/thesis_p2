@@ -234,3 +234,16 @@ Block 1 order now: calibration_study (M) -> identity probe (M) -> alignment (M)
   Next: Turnitin rewrite (Ch1-5 condensed fresh, C1-C13, Ch6 6.1-6.2; ToC),
   re-measure verbatim overlap, Overleaf compile, slides (8-10), supervisor.
 
+- 25 Sep: TURNITIN REWRITE DONE. Ch1-4 (Ch4+5 merged: 'Methodology and
+  Implementation'), Ch6 opening, C1-C13, Ch11 future work rewritten fresh +
+  condensed; ToC now 10 chapters. 8-gram overlap vs P2 as committed 27 Aug
+  (21de0ff = P2 sources): BODY 2.0% of 27.7k words (rest = equations, table
+  numbers, figure code). Templates + bibliography will still match.
+  Code-vs-P2 errors corrected while rewriting: EEGNet 74,933 params (not
+  ~2.2M); fusion 2,287,621 / concat 1,349,765; encoder lr 5e-4->5e-6; EEGNet
+  lr 1e-5; encoders keep final epoch; AST feature = token mean; EEG polyphase
+  resampling; audio pickles raw 16 kHz; unsupported EEG-fix attributions.
+  Remaining \pend (3): Pan et al. description (Ch2 + Ch6, contradictory in
+  P2 -> user checks paper); Ch7 per-fold Stage A times.
+  Next: Overleaf compile, slides (8-10), supervisor.
+

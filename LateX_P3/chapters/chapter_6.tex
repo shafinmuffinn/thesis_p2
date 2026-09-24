@@ -172,7 +172,7 @@ Figure~\ref{fig:per_class_metrics} reports per-class performance of the modality
 
 \begin{figure}[htbp]
 \centering
-\IfFileExists{images/fig_6_4_per_class.png}{\includegraphics[width=\textwidth]{images/fig_6_4_per_class.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_6\_4\_per\_class.png}. Place the combined confusion-matrix + per-class $F_1$ figure here.}}}
+\IfFileExists{images/fig_6_4_per_class.png}{\includegraphics[width=\textwidth]{images/fig_6_4_per_class.png}}{\fbox{\parbox{0.86\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_6\_4\_per\_class.png}.}}}
 \caption{Per-class performance of the modality-dropout model on 5{,}040 within-subject test trials, at the Pre-Thesis~II test-selected epoch (absolute values inflated; relative class difficulty only). Left: confusion matrix in row-percent terms. Right: per-class $F_1$.}
 \label{fig:per_class_metrics}
 \end{figure}
@@ -187,11 +187,11 @@ The Pre-Thesis~II report presented a $5\times5$ suppression matrix at this point
 \section{Comparison with Prior Work on EAV}
 \label{sec:eav_prior_comparison}
 
-The EAV dataset \cite{Lee2024EAV} was released in 2024 and has a small citing literature. Table~\ref{tab:eav_prior_comparison} places the present work beside the three published trimodal fusion methods evaluated on it.
+Only a handful of papers have reported fusion results on EAV \cite{Lee2024EAV} since its 2024 release. Table~\ref{tab:eav_prior_comparison} places the present work beside the three published trimodal fusion methods evaluated on it.
 
 \begin{table}[htbp]
 \centering
-\caption{Trimodal fusion methods evaluated on EAV. All figures are within-subject. Per-modality accuracies are reported where the original authors made them available (``n/r'' otherwise). ``Selection'' records how the reported epoch or checkpoint was chosen, where stated.}
+\caption{Trimodal fusion methods evaluated on EAV. All figures are within-subject. ``n/r'': not reported by the original authors. ``Selection'' records how the reported epoch or checkpoint was chosen, where stated.}
 \label{tab:eav_prior_comparison}
 \small
 \begin{tabular}{p{3.7cm} c c c c c c}
@@ -227,7 +227,7 @@ Where several tests address one question, the Holm step-down procedure \cite{Hol
 
 \textbf{Training discipline matters more than the fusion operator.} The largest reproducible effect among the learned heads is modality dropout ($+3.1$ points for the attention module), not the choice between attention and concatenation, which modality dropout neutralises. The same pattern recurs under subject-independent evaluation.
 
-\textbf{On the EEG performance ceiling.} The 43.9\% mean EEG accuracy reflects EEGNet's performance in EAV's within-subject low-data regime rather than a broken training configuration. With the two training bugs resolved (Chapter~\ref{chap:engineering_challenges}), EEG accuracy exceeds the EAV paper's published 36.7\% baseline. The ceiling is set by the small per-participant training set, the absence of cross-subject EEG pretraining, the non-stationarity of EEG, and the difficulty of distinguishing five emotional states from 30-channel EEG at five-second resolution.
+\textbf{On the EEG performance ceiling.} The 43.9\% mean EEG accuracy reflects EEGNet's performance in EAV's within-subject low-data regime rather than a broken training configuration. With the two training bugs resolved (Chapter~\ref{chap:engineering_challenges}), EEG accuracy exceeds the EAV paper's published 36.7\% baseline. The ceiling is set by the small per-participant training set, the absence of cross-subject EEG pretraining, the non-stationarity of EEG, and how hard it is to separate five emotions in five seconds of 30-channel EEG.
 
 \textbf{On the Listen/Speak asymmetry.} In EAV the EEG segments are taken from the participant's \emph{listening} window and the audio and video from the \emph{speaking} window (Section~\ref{sec:listenspeak_asymmetry}). The three modalities are therefore never simultaneous: a trimodal example pairs the neural response to a cue with the behavioural response to it. This matters little for classification accuracy, but it constrains any trial-level interpretation of agreement between EEG and the audio-visual signals.
 
