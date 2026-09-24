@@ -8,9 +8,10 @@ from below naive late fusion to 11--14 percentage points above it, and the effec
 with as few as twenty calibration clips. A control then locates the gain: calibrating
 the averaging baseline in the same way lifts it by a similar amount, so that without
 labels no learned head is significantly better than calibrated averaging
-(Section~\ref{sec:cal_baseline}). What the learned heads can do that averaging cannot
-is examined in Section~\ref{sec:cal_labelled}, where the calibration clips are also
-labelled. Section~\ref{sec:cal_mechanism} shows that calibration removes linearly
+(Section~\ref{sec:cal_baseline}). The learned heads earn their place only when the
+calibration clips are also labelled: with 20--50 labelled clips they outperform averaging
+given the same labels, and the attention model trained with modality dropout does so
+first and by the widest margin (Section~\ref{sec:cal_labelled}). Section~\ref{sec:cal_mechanism} shows that calibration removes linearly
 decodable participant identity, mostly from vision, and
 Section~\ref{sec:cal_attention} asks whether the attention module's weighting is
 dynamic.
@@ -297,8 +298,10 @@ transductive row ($n = 400$) is Table~\ref{tab:cal_main}.}
 \centering
 \IfFileExists{images/fig_cal_curve.png}{\includegraphics[width=0.85\textwidth]{images/fig_cal_curve.png}}{\fbox{\parbox{0.8\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_cal\_curve.png} (accuracy versus $n$ calibration trials, random and skewed conditions, with bootstrap CIs, from \texttt{p3\_stats/calibration\_curve.csv}).}}}
 \caption{Accuracy on non-calibration trials as a function of the number of unlabelled
-calibration trials. Naive late fusion is flat because it does not use the
-calibration statistics.}
+calibration clips, with 95\% bootstrap bands. Uncalibrated averaging is flat because it
+does not use the calibration statistics; squares mark averaging calibrated from the same
+clips (Section~\ref{sec:cal_baseline}). Dashed green line: concat-MLP with transductive
+calibration.}
 \label{fig:cal_curve}
 \end{figure}
 
@@ -560,7 +563,66 @@ the same heads without labels. Averaging can use labels too, in simpler ways: a
 per-participant correction of its class biases, or of its modality weights, fitted on
 the same labelled clips. \texttt{labelled\_naive.py} fits both, with their regularisation
 chosen on the inner-validation participants exactly as the heads' fine-tuning settings
-were, on identical clips. \pend{labelled averaging results: table + tests + one-paragraph verdict}
+were, on identical clips.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Labelled averaging against the labelled heads on identical clips, mean over 42
+participants. \emph{Centred}: calibrated averaging, no labels used. \emph{Bias}: plus
+five class biases fitted on the labelled clips (primary). \emph{Weighted}: plus three
+modality weights (secondary).}
+\label{tab:cal_labelled_naive}
+\begin{tabular}{rrccccccc}
+\hline
+& & \multicolumn{3}{c}{\textbf{Averaging}} & \multicolumn{4}{c}{\textbf{Learned heads, labelled}} \\
+\textbf{$k$} & \textbf{$n$} & \textbf{Centred} & \textbf{Bias} & \textbf{Weighted} & \textbf{Concat} & \textbf{Dropout} & \textbf{Attention} & \textbf{Dropout (AV)} \\
+\hline
+1  & 5  & 71.41 & 72.80 & 70.65 & 72.31 & 72.35 & 70.90 & 70.71 \\
+2  & 10 & 73.29 & 75.21 & 72.87 & 75.42 & 76.00 & 74.11 & 74.49 \\
+4  & 20 & 74.23 & 76.53 & 74.30 & 77.87 & 78.55 & 76.66 & 77.11 \\
+10 & 50 & 74.54 & 77.19 & 74.78 & 81.00 & 81.94 & 80.71 & 80.36 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Each labelled head minus labelled averaging (bias variant), percentage points;
+paired Wilcoxon over 42 participants, $^{*}$ significant after Holm correction over the
+24 tests of the pre-specified family. Participants for whom the head is better in
+parentheses.}
+\label{tab:cal_labelled_naive_tests}
+\begin{tabular}{rrcccc}
+\hline
+\textbf{$k$} & \textbf{$n$} & \textbf{Concat-MLP} & \textbf{Dropout} & \textbf{Attention} & \textbf{Dropout (AV)} \\
+\hline
+1  & 5  & $-0.49$ (19)      & $-0.45$ (17)      & $-1.90$ (17)      & $-2.09^{*}$ (10) \\
+2  & 10 & $+0.20$ (25)      & $+0.79$ (25)      & $-1.11$ (14)      & $-0.72$ (16) \\
+4  & 20 & $+1.34$ (28)      & $+2.02^{*}$ (34)  & $+0.13$ (25)      & $+0.58$ (25) \\
+10 & 50 & $+3.81^{*}$ (36)  & $+4.75^{*}$ (40)  & $+3.52^{*}$ (36)  & $+3.17^{*}$ (34) \\
+\hline
+\end{tabular}
+\end{table}
+
+Averaging does benefit from the labels: the five fitted class biases add 1.4 to 2.7
+points to calibrated averaging at every size, each significant after correction (35--41
+of 42 participants). Fitting modality weights as well does not help; the strongest
+regularisation was chosen in every fold, pulling the weights back toward equality, and
+this variant stays within one point of unlabelled averaging.
+
+Tables~\ref{tab:cal_labelled_naive} and~\ref{tab:cal_labelled_naive_tests} then show
+where the learned heads pull ahead. With one or two labelled clips per class they do
+not: every difference is within about two points, and the dropout model with EEG zeroed
+is significantly \emph{worse} than labelled averaging at $n = 5$. With four clips per
+class, only the attention model trained with modality dropout is significantly better
+($+2.02$ points, 34 of 42 participants). With ten clips per class, all four heads are
+significantly better, by 3.2 to 4.8 points, and the dropout-trained attention model
+leads again ($+4.75$ points, 40 of 42 participants). Learned fusion therefore uses
+labels better than averaging does, but only once a new user supplies around 20--50
+labelled clips, and attention trained with modality dropout is the first head to show
+the advantage and shows it most.
 
 \textbf{Limitation.} The larger step count was chosen in 13 of the 15 fold-and-head
 cases, so the grid may have stopped short of the best fine-tuning budget and the
@@ -851,7 +913,9 @@ secondly from audio. But calibrating the averaging baseline in the same way make
 just as accurate (74.9\%): without labels, calibration is the contribution and the
 choice of fusion operator does not matter. The learned heads' advantage is that they
 can use labels---fine-tuning on ten labelled clips per class lifts them to
-80.4--81.9\%, with dropout-trained attention the most accurate---and
-\pend{verdict of labelled averaging vs labelled heads}. The attention weighting is
+80.4--81.9\%, with dropout-trained attention the most accurate. Averaging can also use
+the labels, but less well: with 50 labelled clips every learned head beats labelled
+averaging by 3.2--4.8 points, and with 20 clips only dropout-trained attention does.
+The attention weighting is
 dynamic from trial to trial, favours audio when audio is right, and does not recognise
 when EEG is right.

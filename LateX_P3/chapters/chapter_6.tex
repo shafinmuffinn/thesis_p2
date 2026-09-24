@@ -231,7 +231,7 @@ Where several tests address one question, the Holm step-down procedure \cite{Hol
 
 \section{Discussion}
 
-\textbf{Within-subject, learned fusion adds little over averaging.} Once test-set selection is removed, the best learned heads exceed mean-softmax averaging by about 2.4 points, with a significance that depends on the correction family, and plain attention does not exceed it at all. With 280 training trials per participant, a fusion head has little data from which to learn more than averaging already provides. This does not mean learned fusion is without value on EAV: Chapter~\ref{chap:calibration} shows that with enough data and an identity-free representation, the same heads exceed averaging by 11 to 14 points.
+\textbf{Within-subject, learned fusion adds little over averaging.} Once test-set selection is removed, the best learned heads exceed mean-softmax averaging by about 2.4 points, with a significance that depends on the correction family, and plain attention does not exceed it at all. With 280 training trials per participant, a fusion head has little data from which to learn more than averaging already provides. Chapter~\ref{chap:calibration} identifies the condition under which learned fusion does add value on EAV: an identity-free representation combined with a few dozen labelled clips from the person being recognised.
 
 \textbf{Training discipline matters more than the fusion operator.} The largest reproducible effect among the learned heads is modality dropout ($+3.1$ points for the attention module), not the choice between attention and concatenation, which modality dropout neutralises. The same pattern recurs under subject-independent evaluation.
 

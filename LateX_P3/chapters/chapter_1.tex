@@ -47,12 +47,7 @@ The thesis addresses nine research questions. RQ1--RQ5 were posed in Pre-Thesis~
 The thesis makes two principal contributions, supported by three secondary ones.
 
 \begin{enumerate}
-    \item \textbf{Unsupervised subject calibration for trimodal fusion (Chapter~\ref{chap:calibration}).} Per-participant standardisation of the fusion features, computed from about 20 unlabelled five-second clips, lifts every learned fusion head on unseen participants from 3--4.5 points below naive averaging to 11--14 points above it. The chapter characterises how much calibration data is needed, shows that a neutral-only enrolment session fails, and shows with linear probes that what the calibration removes is linearly decodable participant identity.
-    \item \textbf{An evaluation-integrity audit (Chapter~\ref{chap:audit}).} Test-set epoch selection inflated the Pre-Thesis~II fusion results by 5.3--7.5 points; trial alignment across modalities cannot be verified from the released data; and the suppression matrix is statistically indistinguishable from the EEG classifier's own error structure. Each test is cheap, reusable and applicable to other work on EAV.
-    \item \textbf{The first subject-independent evaluation of trimodal fusion on EAV (Chapter~\ref{chap:crosssubject})}, which localises the loss on new participants to the vision modality.
-    \item \textbf{A trimodal attention fusion module with a zero-EEG inference path (Chapters~\ref{chap:methodology} and~\ref{chap:within})}, trained with softhard modality dropout, which remains accurate when EEG is absent.
-    \item \textbf{Documented fixes to the EAV reference code (Chapter~\ref{chap:engineering_challenges})}, including defects in the public EEGNet code that prevented it from training correctly.
-\end{enumerate}
+    \item \textbf{Subject calibration for trimodal fusion (Chapter~\ref{chap:calibration}).} Standardising each participant's fusion features with statistics from about 20 unlabelled five-second clips lifts every learned fusion head on unseen participants from 3--4.5 points below averaging to 73.6--75.9\%. Linear probes show that the calibration removes linearly decodable participant identity, mostly from vision. Averaging calibrated the same way is just as accurate, so without labels the gain belongs to calibration rather than to the fusion operator; when the calibration clips are also labelled, the learned heads outperform labelled averaging by 3.2--4.8 points at 50 clips, with attention trained with modality dropout the most accurate.
 
 \section{Methodology in Brief}
 The system is built in three cached stages, and evaluated under three protocols.

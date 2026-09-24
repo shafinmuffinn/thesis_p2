@@ -389,12 +389,14 @@ A held-out participant's offset is new, so their features lie off the training
 distribution in a direction that carries no emotional information. Naive late fusion
 combines class probabilities rather than features, contains no fitted quantity that
 the offset can mislead, and therefore degrades least. Its advantage here is robustness,
-not expressiveness, and it disappears once the offset is removed.
+not expressiveness. Once the offset is removed, the learned heads recover---but so does
+averaging, when its outputs are corrected for the same offset.
 
-This is a protocol-dependent conclusion, not a verdict on attention-based fusion.
+This is a conclusion about the representation, not a verdict on attention-based fusion.
 With participant identity in the features, learned fusion loses to averaging on unseen
-participants; with it removed, every learned head wins by 11 to 14 points. Both
-statements are true, and reporting only one would misrepresent the system.
+participants. With identity removed by calibration, learned fusion and averaging are
+equally accurate (Section~\ref{sec:cal_baseline}), and learned fusion pulls ahead only
+when the new participant also supplies labelled clips (Section~\ref{sec:cal_labelled}).
 
 \subsection{The Magnitude of the Overall Drop}
 
@@ -442,10 +444,11 @@ identity in Chapter~\ref{chap:calibration}, where per-participant calibration ra
 the best cross-subject figure to 75.9\%.
 
 \textbf{RQ7---Protocol dependence of the architectural contribution:} It depends on
-the representation, not only on the protocol. Under subject-independent evaluation
-with default normalisation, no learned fusion head outperforms naive softmax
-averaging, and all three are 3.4--4.5 points worse and indistinguishable from one
-another. With per-participant calibration, every learned head outperforms averaging by
-11--14 points and the heads separate significantly (concat-MLP $>$ modality dropout $>$
-cross-attention; Chapter~\ref{chap:calibration}). Within-subject, where both effects
-are absent, learned fusion is at best marginally better than averaging.
+the representation and on the data available for the new participant. Under
+subject-independent evaluation with default normalisation, every learned fusion head
+is 3.4--4.5 points below naive softmax averaging, and the heads cannot be told apart.
+With per-participant calibration applied to both, learned fusion and averaging are
+statistically tied. Only when the new participant's calibration clips are labelled do
+the learned heads outperform averaging given the same labels (by 3.2--4.8 points at 50
+clips; Chapter~\ref{chap:calibration}). Within-subject, learned fusion is at best
+marginally better than averaging.
