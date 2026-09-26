@@ -48,9 +48,14 @@ The thesis makes two principal contributions, supported by three secondary ones.
 
 \begin{enumerate}
     \item \textbf{Subject calibration for trimodal fusion (Chapter~\ref{chap:calibration}).} Standardising each participant's fusion features with statistics from about 20 unlabelled five-second clips lifts every learned fusion head on unseen participants from 3--4.5 points below averaging to 73.6--75.9\%. Linear probes show that the calibration removes linearly decodable participant identity, mostly from vision. Averaging calibrated the same way is just as accurate, so without labels the gain belongs to calibration rather than to the fusion operator; when the calibration clips are also labelled, the learned heads outperform labelled averaging by 3.2--4.8 points at 50 clips, with attention trained with modality dropout the most accurate.
+    \item \textbf{An evaluation-integrity audit (Chapter~\ref{chap:audit}).} Choosing each fusion head's epoch on the test set had inflated the Pre-Thesis~II fusion results by 5.3--7.5 points; the modalities' trials cannot be shown to correspond from the released data; and the suppression matrix cannot be told apart from the EEG classifier's own errors. Each test is quick to run and can be reused on other work with EAV.
+    \item \textbf{The first subject-independent evaluation of trimodal fusion on EAV (Chapter~\ref{chap:crosssubject})}, which traces the loss on new participants to the vision modality.
+    \item \textbf{A trimodal attention fusion module that works without EEG (Chapters~\ref{chap:methodology} and~\ref{chap:within})}, trained with softhard modality dropout so that accuracy holds when EEG is absent.
+    \item \textbf{Documented fixes to the EAV reference code (Chapter~\ref{chap:engineering_challenges})}, including defects in the public EEGNet code that prevented it from training correctly.
+\end{enumerate}
 
 \section{Methodology in Brief}
-The system is built in three cached stages, and evaluated under three protocols.
+The system is built in three cached stages, and evaluated under four protocols.
 
 \textbf{Stage A: per-modality encoders.} The Audio Spectrogram Transformer (AST), pre-trained on AudioSet, is fine-tuned on audio clips; a Vision Transformer (ViT) pre-trained for facial emotion is fine-tuned on video frames; and EEGNet is trained from scratch on EEG segments.
 
@@ -58,7 +63,7 @@ The system is built in three cached stages, and evaluated under three protocols.
 
 \textbf{Stage C: fusion.} Four fusion methods are compared on the same features: naive late fusion (the mean of the three modalities' softmax outputs); a trimodal attention module (\texttt{TrimodalAttentionFusion}) that treats the three modality features as a three-token sequence and applies self-attention; a concatenation MLP; and the attention module trained with softhard modality dropout, which is also evaluated with EEG zeroed.
 
-\textbf{Protocols.} Results are reported within-subject (each participant's 280/120 split), cross-subject (five-fold subject-wise cross-validation with encoders retrained per fold), and cross-subject with per-participant calibration. Every trained model's reported epoch is chosen without reference to the data it is scored on. Paired Wilcoxon tests with Holm correction and bootstrap confidence intervals are used throughout.
+\textbf{Protocols.} Results are reported within-subject (each participant's 280/120 split), cross-subject (five-fold subject-wise cross-validation with encoders retrained per fold), cross-subject with per-participant calibration, and cross-subject with labelled calibration clips. Every trained model's reported epoch is chosen without reference to the data it is scored on. Paired Wilcoxon tests with Holm correction and bootstrap confidence intervals are used throughout.
 
 \textbf{Coherence analysis.} A suppression matrix counts trials on which audio and vision agree, EEG confidently disagrees, and records the pair of emotions involved. Its cells are tested against a class-conditional permutation null that preserves every classifier's error rates.
 
@@ -68,4 +73,4 @@ The system is built in three cached stages, and evaluated under three protocols.
 \textbf{Challenges.} Twenty-four technical and methodological challenges are documented in Chapter~\ref{chap:engineering_challenges}. The most consequential were defects in the EAV reference EEGNet code that prevented it from training correctly; the leakage risk of reusing within-subject encoders for a cross-subject evaluation, which required retraining every encoder for every fold; and the discovery, in the final phase, that the Pre-Thesis~II fusion results had been selected on the test set.
 
 \section{Report Organisation}
-Chapter~\ref{chap:litreview} reviews the relevant literature. Chapter~\ref{chap:requirements} sets out requirements, impacts and constraints. Chapter~\ref{chap:methodology} describes the methodology and Chapter~\ref{chap:implementation} its implementation. Chapter~\ref{chap:within} reports within-subject results; Chapter~\ref{chap:crosssubject}, the subject-independent evaluation; Chapter~\ref{chap:calibration}, unsupervised subject calibration; and Chapter~\ref{chap:audit}, the evaluation-integrity audit. Chapter~\ref{chap:engineering_challenges} documents engineering challenges, and Chapter~\ref{chap:conclusion} concludes.
+Chapter~\ref{chap:litreview} reviews the relevant literature. Chapter~\ref{chap:requirements} sets out requirements, impacts and constraints. Chapter~\ref{chap:methodology} describes the methodology and its implementation. Chapter~\ref{chap:within} reports within-subject results; Chapter~\ref{chap:crosssubject}, the subject-independent evaluation; Chapter~\ref{chap:calibration}, unsupervised subject calibration; and Chapter~\ref{chap:audit}, the evaluation-integrity audit. Chapter~\ref{chap:engineering_challenges} documents engineering challenges, and Chapter~\ref{chap:conclusion} concludes.

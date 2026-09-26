@@ -138,7 +138,7 @@ The attention architecture is nonetheless retained as the thesis's fusion design
 \section{Modality Dropout and Robustness}
 \label{sec:modality_dropout_results}
 
-Softhard modality dropout (Section~\ref{sec:modality_dropout}) trains the attention module on inputs in which, for each sample with probability 0.5, one randomly chosen modality is replaced by zeros and the remaining ones are rescaled. The trained model is then evaluated with all modalities present and with EEG zeroed---the audio-visual (AV) configuration that corresponds to the demonstration, where no EEG headset exists.
+Softhard modality dropout (Section~\ref{sec:modality_dropout}) trains the attention module on inputs in which, for each sample with probability 0.5, one randomly chosen modality is replaced by zeros and the remaining ones are rescaled. The trained model is then evaluated with all modalities present and with EEG zeroed---the audio-visual (AV) configuration of any user without an EEG headset.
 
 \begin{table}[htbp]
 \centering
@@ -150,7 +150,7 @@ Softhard modality dropout (Section~\ref{sec:modality_dropout}) trains the attent
 \textbf{Inference configuration} & \textbf{Leak-free} & \textbf{Pre-Thesis~II (test-selected epoch)} \\
 \hline
 Full (audio + vision + EEG) & 79.80\% & 84.7\% \\
-AV only (EEG zeroed; demo path) & 79.17\% & 81.5\% \\
+AV only (EEG zeroed) & 79.17\% & 81.5\% \\
 VE only (audio zeroed) & not measured & 79.7\% \\
 AE only (vision zeroed) & not measured & 54.0\% \\
 \hline
@@ -159,7 +159,7 @@ AE only (vision zeroed) & not measured & 54.0\% \\
 
 \textbf{Dropout makes attention competitive.} Modality-dropout training lifts the same attention architecture from 76.75\% to 79.80\%, a gain of 3.06 points ($p_{\mathrm{Holm}} = 3.1\times10^{-4}$, 32 of 42 participants), and leaves it tied with concat-MLP ($-0.16$ points, not significant). This is the largest reproducible architectural effect in the within-subject results. Randomly removing a modality during training forces each modality token to carry self-sufficient evidence, which acts as a regulariser on a module that otherwise over-fits 280 training trials.
 
-\textbf{The demo path survives.} With EEG zeroed at inference, the dropout model reaches 79.17\%. Removing EEG costs it 0.63 points, which is not significant ($p_{\mathrm{Holm}} = 0.16$ in a separate two-test family), and the AV configuration still beats full-modality cross-attention trained without dropout by 2.42 points ($p_{\mathrm{Holm}} = 0.0043$, 26 of 42 participants).
+\textbf{The zero-EEG path survives.} With EEG zeroed at inference, the dropout model reaches 79.17\%. Removing EEG costs it 0.63 points, which is not significant ($p_{\mathrm{Holm}} = 0.16$ in a separate two-test family), and the AV configuration still beats full-modality cross-attention trained without dropout by 2.42 points ($p_{\mathrm{Holm}} = 0.0043$, 26 of 42 participants).
 
 \textbf{Vision dominates within-subject.} The Pre-Thesis~II configuration results, although inflated in absolute terms, measure all four configurations at the same epoch and so remain informative about relative importance: removing vision cost 30.7 points, against 5.0 for audio and 3.2 for EEG. Chapter~\ref{chap:crosssubject} shows that this dominance is largely participant identity, which does not transfer.
 
@@ -230,5 +230,3 @@ Where several tests address one question, the Holm step-down procedure \cite{Hol
 \textbf{On the EEG performance ceiling.} The 43.9\% mean EEG accuracy reflects EEGNet's performance in EAV's within-subject low-data regime rather than a broken training configuration. With the two training bugs resolved (Chapter~\ref{chap:engineering_challenges}), EEG accuracy exceeds the EAV paper's published 36.7\% baseline. The ceiling is set by the small per-participant training set, the absence of cross-subject EEG pretraining, the non-stationarity of EEG, and how hard it is to separate five emotions in five seconds of 30-channel EEG.
 
 \textbf{On the Listen/Speak asymmetry.} In EAV the EEG segments are taken from the participant's \emph{listening} window and the audio and video from the \emph{speaking} window (Section~\ref{sec:listenspeak_asymmetry}). The three modalities are therefore never simultaneous: a trimodal example pairs the neural response to a cue with the behavioural response to it. This matters little for classification accuracy, but it constrains any trial-level interpretation of agreement between EEG and the audio-visual signals.
-
-\textbf{On the relationship to Pan et al.\ 2024.} \pend{verify this description of Pan et al.\ against the paper; Chapter 2 must agree} Pan et al.\ \cite{Pan2024OJEMB} fuse facial expression, speech and EEG at decision level---equivalent to the naive late-fusion baseline here---on datasets including MAHNOB-HCI, and find that fusion is significantly better only than speech, not than face or EEG. The leak-free within-subject results here are consistent with that picture: on corpora where one modality dominates and data per participant are scarce, the choice of fusion operator matters less than the encoders and the amount of training data.

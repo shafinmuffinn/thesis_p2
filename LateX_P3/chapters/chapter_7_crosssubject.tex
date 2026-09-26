@@ -1,8 +1,7 @@
 The results of Chapter~\ref{chap:within} are obtained under a \emph{within-subject} protocol: for
 each participant, a model is trained on 280 of that participant's trials and tested
-on the remaining 120. Limitation~2 of this thesis acknowledges that such figures
-cannot support a generalisation claim. This chapter removes that limitation by
-re-running the entire pipeline under a subject-disjoint protocol and reporting what
+on the remaining 120. Such figures cannot support a claim about people the system
+has never seen. This chapter addresses that by re-running the entire pipeline under a subject-disjoint protocol and reporting what
 the system achieves on participants it has never seen.
 
 \section{Motivation: What Within-Subject Evaluation Conceals}
@@ -13,7 +12,7 @@ voice and neural signature during training. The reported accuracy therefore answ
 the question \emph{``how well does the system recognise emotions in a person it has
 already studied?''}, not \emph{``does the system recognise emotions?''}. For a
 deployment scenario---clinical screening, human-computer interaction, or the
-demonstration component of this thesis---the second question is the operative one,
+any system meant for new users---the second question is the operative one,
 because every new user is by definition a participant the system has never trained on.
 
 This distinction is not merely theoretical. A facial-emotion encoder trained and
@@ -65,8 +64,8 @@ reports the assignment.
 \end{table}
 
 Five folds are used rather than leave-one-subject-out (LOSO). LOSO would require 42
-folds $\times$ 3 encoders $=$ 126 encoder trainings. At the measured cost of fold~1
-(164 minutes; \pend{confirm other folds' times}), five folds need roughly 14 hours of
+folds $\times$ 3 encoders $=$ 126 encoder trainings. Fold~1, the only fold whose full
+duration was recorded, took 164 minutes; at that rate five folds need roughly 14 hours of
 GPU time, whereas LOSO would need at least 113 hours. Five-fold subject-wise
 cross-validation retains the essential property---every participant is tested exactly
 once as an unseen individual---at a fraction of the cost. Because every participant is
@@ -421,7 +420,7 @@ within-subject. The level moves; the shape of the population distribution does n
 The zero-EEG configuration retains its practical viability. Under default
 normalisation, modality-dropout fusion scores 58.77\% at full modality and 57.89\% with
 EEG zeroed---a difference of 0.89 percentage points that is not statistically
-significant ($p = 0.090$). The demonstration path, which operates without an EEG
+significant ($p = 0.090$). The zero-EEG configuration, which operates without an EEG
 headset, therefore degrades gracefully on unseen participants as well as on seen ones.
 
 The corollary was initially read as unfavourable to the trimodal premise: if removing

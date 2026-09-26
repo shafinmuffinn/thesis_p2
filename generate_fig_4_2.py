@@ -10,7 +10,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 
-OUT_DIR = Path(__file__).resolve().parent / "LateX" / "images"
+OUT_DIR = Path(__file__).resolve().parent / "LateX_P3" / "images"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH = OUT_DIR / "fig_4_2_attention_arch.png"
 
@@ -97,7 +97,7 @@ def main():
             "TrimodalAttentionFusion  —  Self-Attention over Modality Tokens",
             ha="center", fontsize=17, fontweight="bold", color=LB_DEEP)
     ax.text(XLIM / 2, 26.2,
-            "Trimodal fusion module   ·   2.28 M trainable parameters",
+            "Trimodal fusion module   ·   2.29 M trainable parameters",
             ha="center", fontsize=11.5, style="italic", color=OR_DEEP)
 
     # Three column centres for the parallel input streams
@@ -141,7 +141,7 @@ def main():
             color=GREY, style="italic")
     for cxn, idx in [(cx_a, 0), (cx_v, 1), (cx_e, 2)]:
         block(ax, cxn, y, col_w, 1.0,
-              f"+ modality_embed[{idx}]\nLayerNorm",
+              f"+ modality_embed[{idx}]",
               fc=LB_SOFT, ec=LB_DEEP, lw=1.4,
               fontsize=10.5, color=DARK_TEXT)
 
@@ -167,8 +167,8 @@ def main():
 
     block(ax, cx_main, y, 23.0, 1.3,
           "Softhard Modality Dropout   ·   (training only)\n"
-          "with p = 1/3   ·   pick m ∈ {audio, vision, eeg}   ·   "
-          "zero its token",
+          "per sample, p = 0.5   ·   pick one modality at random   ·   "
+          "zero its input, rescale the others by 3 / n_active",
           fc=OR_SOFT, ec=OR_DEEP, lw=2.0,
           fontsize=11, weight="bold", color=DARK_TEXT)
     arrow(ax, cx_main, y - 0.65, cx_main, y - 1.4)

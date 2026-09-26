@@ -414,7 +414,7 @@ Tables~\ref{tab:cal_main} and~\ref{tab:cal_random} exactly.
 All columns except the first use the same calibration clips and are scored on the
 same trials.}
 \label{tab:cal_baseline}
-\begin{tabular}{lccccccc}
+\resizebox{\textwidth}{!}{\begin{tabular}{lccccccc}
 \hline
 & \multicolumn{3}{c}{\textbf{Averaging}} & & \multicolumn{3}{c}{\textbf{Learned heads (calibrated)}} \\
 \textbf{Calibration} & \textbf{Uncal.} & \textbf{Centred} & \textbf{Z-scored} & \textbf{Audio, centred} & \textbf{Concat} & \textbf{Dropout} & \textbf{Attention} \\
@@ -423,7 +423,7 @@ All 400 clips    & 62.15\% & 74.87\% & 75.88\% & 65.54\% & 75.93\% & 75.02\% & 7
 20 random clips  & 62.14\% & 72.95\% & 72.52\% & 63.89\% & 73.84\% & 73.04\% & 72.48\% \\
 50 random clips  & 62.17\% & 73.98\% & 74.60\% & 64.84\% & 75.08\% & 74.25\% & 73.42\% \\
 \hline
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 Table~\ref{tab:cal_baseline} and the tests of Table~\ref{tab:cal_baseline_tests} give
@@ -774,7 +774,7 @@ protocol.
 participants with 95\% bootstrap CI, and the mean within-participant standard deviation
 across trials (SD).}
 \label{tab:attention_weights}
-\begin{tabular}{llcccccc}
+\resizebox{\textwidth}{!}{\begin{tabular}{llcccccc}
 \hline
 \textbf{Protocol} & \textbf{Head} & \textbf{Audio} & \textbf{Vision} & \textbf{EEG} & \textbf{SD$_a$} & \textbf{SD$_v$} & \textbf{SD$_e$} \\
 \hline
@@ -783,7 +783,7 @@ Default    & Dropout   & 0.362 [0.352, 0.373] & 0.415 [0.403, 0.426] & 0.223 [0.
 Calibrated & Attention & 0.403 [0.395, 0.411] & 0.402 [0.390, 0.415] & 0.195 [0.188, 0.202] & 0.090 & 0.086 & 0.055 \\
 Calibrated & Dropout   & 0.403 [0.395, 0.411] & 0.410 [0.402, 0.419] & 0.187 [0.179, 0.195] & 0.110 & 0.106 & 0.054 \\
 \hline
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \textbf{The weighting is dynamic.} Within a participant, each modality's weight varies
@@ -810,7 +810,7 @@ participants), and vision's does not change significantly (Holm over 6 tests). T
 with Table~\ref{tab:cal_per_modality}, calibration helps vision by making the vision
 token informative, not by making attention avoid it.
 
-\textbf{Caveats.} The differences in Q3 and Q4 are small in weight units (0.01--0.04);
+\textbf{Caveats.} The right-versus-wrong and before-versus-after differences are small in weight units (0.01--0.04);
 rollout is a heuristic summary of information flow; and attention weights describe how
 tokens are mixed, not a complete explanation of the decision
 \cite{Jain2019AttentionNot}. The finding that matters for the title is the combination:

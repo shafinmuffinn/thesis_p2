@@ -18,6 +18,7 @@ The thesis also re-examined its own Pre-Thesis~II results. Selecting each fusion
 \textbf{Contribution 5: Documented fixes to the EAV reference code.} Defects in the public PyTorch EEGNet path---among them a forward hook that replaced a layer's output with its weight tensor, and a trainer that left BatchNorm and dropout in evaluation mode after the first epoch---prevented EEGNet from training correctly. With the defects fixed and the full epoch budget restored, pilot EEG accuracy rose from 24.4\% to 50.6\% (Chapter~\ref{chap:engineering_challenges}).
 
 \section{Answers to the Research Questions}
+Table~\ref{tab:rq_summary} summarises the answers to the nine research questions, each argued in full in the chapter named in Section~\ref{sec:contributions_intro}.
 
 \begin{table}[htbp]
 \centering
@@ -56,7 +57,7 @@ Seven limitations are acknowledged.
 
 \textbf{Limitation 6: Unverified trial alignment.} The released pickles are sorted into class blocks and carry no trial identifiers, so it cannot be confirmed that trial $i$ is the same interaction in every modality. Classification results do not depend on this; trial-level coherence analyses do.
 
-\textbf{Limitation 7: Unverified EEGNet port.} The corrected PyTorch EEGNet was not compared against the TensorFlow implementation from which the EAV paper's EEG baseline most likely comes, so the comparison with that baseline is between implementations as well as between training configurations.
+\textbf{Limitation 7: Unverified EEGNet port.} The corrected PyTorch EEGNet was not compared against the TensorFlow implementation from which the EAV paper's EEG baseline may come, so the comparison with that baseline is between implementations as well as between training configurations.
 
 \section{Future Work}
 

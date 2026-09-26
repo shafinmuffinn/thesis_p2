@@ -17,7 +17,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 
-OUT_DIR = Path(__file__).resolve().parent / "LateX" / "images"
+OUT_DIR = Path(__file__).resolve().parent / "LateX_P3" / "images"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH = OUT_DIR / "fig_4_1_trimodal_pipeline.png"
 
@@ -101,12 +101,12 @@ def main():
     ax.text(XLIM / 2, 15.5, "Three-Stage Trimodal Pipeline",
             ha="center", fontsize=16, fontweight="bold", color=LB_DEEP)
     ax.text(XLIM / 2, 14.9,
-            "Per-modality encoders  →  fusion  →  coherence analysis",
+            "Per-modality encoders  →  cached features  →  fusion and evaluation",
             ha="center", fontsize=11, style="italic", color=OR_DEEP)
 
     # ---- EAV dataset header ----
     sharp_block(ax, XLIM / 2, 13.8, 18, 0.85,
-                "EAV Dataset   ·   42 subjects × 5 emotions × 200 cue-based trials   ·   trial-aligned across modalities",
+                "EAV Dataset   ·   42 participants × 5 emotions   ·   400 five-second trials per participant and modality",
                 fc=OR_SOFT, ec=OR_DEEP, fontsize=10.5, weight="bold")
 
     # ---- Three modality columns ----
@@ -124,7 +124,7 @@ def main():
           "AUDIO  ·  16 kHz, 5 s",
           fc=LB_SOFT, ec=LB_DEEP, fontsize=10, weight="bold")
     block(ax, cx_v, 12.3, col_w, 0.85,
-          "VIDEO  ·  25 fps, 5 s",
+          "VIDEO  ·  25 frames, 5 s",
           fc=LB_SOFT, ec=LB_DEEP, fontsize=10, weight="bold")
     block(ax, cx_e, 12.3, col_w, 0.85,
           "EEG  ·  30 ch, 500 Hz",
@@ -185,12 +185,12 @@ def main():
 
     # ---- Stage C — Fusion ----
     stage_label(ax, 2.0, 6.0, "STAGE C")
-    ax.text(0.7, 5.55, "Fusion +\ncoherence",
+    ax.text(0.7, 5.55, "Fusion +\nevaluation",
             ha="left", va="top", fontsize=9.5, color=GREY,
             style="italic")
 
     block(ax, XLIM / 2, 6.0, 18, 1.4,
-          "TrimodalAttentionFusion  ·  2.28 M params\n"
+          "TrimodalAttentionFusion  ·  2.29 M params  (also: naive averaging, concat-MLP)\n"
           "Linear projections → modality embed → softhard dropout (training only)\n"
           "→ Transformer encoder × 2 → mean-pool → MLP head",
           fc=LIGHT_BLUE, ec=LB_DEEP, fontsize=10.5,
@@ -211,7 +211,7 @@ def main():
           fc=PANEL_WHITE, ec=LB_DEEP, fontsize=10, weight="bold")
 
     block(ax, 15.0, 3.85, 6.5, 1.1,
-          "COHERENCE  HEAD\npairwise symmetric KL on per-modality softmaxes",
+          "COHERENCE  AUDIT\nsuppression matrix vs permutation null",
           fc=PANEL_WHITE, ec=OR_DEEP, fontsize=10, weight="bold")
 
     arrow(ax, 7.0, 3.3, 7.0, 2.6)
@@ -219,13 +219,13 @@ def main():
 
     # ---- Outputs ----
     sharp_block(ax, 7.0, 2.05, 7.0, 1.05,
-                "CLASSIFICATION  RESULTS\n"
-                "cross-attn 80.2%  ·  + dropout 84.7%  ·  AV-only 81.5%",
+                "EVALUATION  PROTOCOLS\n"
+                "within-subject  ·  cross-subject  ·  calibrated  ·  few-shot",
                 fc=LB_SOFT, ec=LB_DEEP, fontsize=9.5, weight="bold")
 
     sharp_block(ax, 15.0, 2.05, 7.0, 1.05,
-                "COHERENCE  RESULTS\n"
-                "5×5 suppression matrix  ·  401 events / 5040 trials",
+                "AUDIT  RESULT\n"
+                "401 events  ·  reproduces EEG errors (r = 0.989)",
                 fc=OR_SOFT, ec=OR_DEEP, fontsize=9.5, weight="bold")
 
     # ---- Footer ----

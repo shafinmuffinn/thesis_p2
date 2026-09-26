@@ -17,7 +17,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 
-OUT_DIR = Path(__file__).resolve().parent / "LateX" / "images"
+OUT_DIR = Path(__file__).resolve().parent / "LateX_P3" / "images"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH = OUT_DIR / "fig_5_1_workflow.png"
 
@@ -125,8 +125,8 @@ def main():
     # ---- BOTTOM CENTRE: Colab Pro (compute hub) ----
     block(ax, cx_colab, y_colab, 18.5, 3.2,
           "Google Colab Pro   ·   Cloud GPU",
-          "NVIDIA L4   ·   24 GB VRAM   ·   83 TFLOPS FP16\n"
-          "training + inference   ·   ~12 h for the full 42-subject rollout",
+          "NVIDIA L4   ·   24 GB GPU memory\n"
+          "training + inference   ·   ~12 h for the within-subject rollout",
           fc=LIGHT_BLUE, ec=LB_DEEP,
           title_color="white", body_color="white",
           title_size=13.5, body_size=11)
