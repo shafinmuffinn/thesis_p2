@@ -11,8 +11,7 @@ Under the within-subject protocol, every encoder sees the test participant's fac
 voice and neural signature during training. The reported accuracy therefore answers
 the question \emph{``how well does the system recognise emotions in a person it has
 already studied?''}, not \emph{``does the system recognise emotions?''}. For a
-deployment scenario---clinical screening, human-computer interaction, or the
-any system meant for new users---the second question is the operative one,
+deployment scenario---clinical screening, human-computer interaction, or any system meant for new users---the second question is the operative one,
 because every new user is by definition a participant the system has never trained on.
 
 This distinction is not merely theoretical. A facial-emotion encoder trained and
@@ -320,7 +319,7 @@ distributed evenly across modalities:
 \begin{figure}[htbp]
 \centering
 \IfFileExists{images/fig_within_cross.png}{\includegraphics[width=\textwidth]{images/fig_within_cross.png}}{\fbox{\parbox{0.9\textwidth}{\centering Missing image placeholder: \texttt{images/fig\_within\_cross.png} (run \texttt{make\_p3\_figures.py}).}}}
-\caption{Mean accuracy over 42 participants under the three protocols. Within-subject fusion figures are leak-free. Calibration (Chapter~\ref{chap:calibration}) acts only on the learned heads' inputs, so no calibrated bar is shown for the unimodal classifiers or naive late fusion.}
+\caption{Mean accuracy over 42 participants under the three protocols. Within-subject fusion figures are leak-free. Only the learned heads are shown calibrated here; averaging calibrated in the same way reaches 74.9\% (Section~\ref{sec:cal_baseline}).}
 \label{fig:within_cross}
 \end{figure}
 
@@ -329,7 +328,7 @@ $>$ EEG (43.9\%); cross-subject, audio (57.5\%) $>$ vision (41.2\%) $>$ EEG (38.
 Audio, not vision, is the strongest single modality on unseen participants, and the
 margin is large and highly significant ($+16.33$ pp, $p < 0.0001$).
 
-A supplementary observation reinforces the interpretation. During calibration, the
+A supplementary observation reinforces the interpretation. While the fold-wise epoch budgets were being set, the
 vision encoder was trained under two budgets: the P2-matched 3~frozen $+$
 2~fine-tuning epochs, and a reduced 1$+$1 schedule. Training the vision encoder
 \emph{longer} produced \emph{worse} cross-subject accuracy (41.9\% against 45.8\% on

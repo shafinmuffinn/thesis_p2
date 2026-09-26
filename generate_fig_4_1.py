@@ -220,7 +220,7 @@ def main():
     # ---- Outputs ----
     sharp_block(ax, 7.0, 2.05, 7.0, 1.05,
                 "EVALUATION  PROTOCOLS\n"
-                "within-subject  ·  cross-subject  ·  calibrated  ·  few-shot",
+                "within- and cross-subject\ncalibrated  ·  few-shot",
                 fc=LB_SOFT, ec=LB_DEEP, fontsize=9.5, weight="bold")
 
     sharp_block(ax, 15.0, 2.05, 7.0, 1.05,

@@ -316,7 +316,7 @@ source of the effect; it is simply the $n = 400$ end of the curve.
 75.08\%, within 0.9 points of the transductive 75.93\%, and further calibration adds
 little. At $n = 10$ all four heads are already significantly above naive late fusion.
 At $n = 5$ only concat-MLP and the dropout model are; five trials give too noisy an
-estimate of a 768- or 960-dimensional mean and variance for the attention heads.
+estimate of a 768- or 960-dimensional mean and variance for plain attention and for the dropout model without EEG.
 
 \textbf{The ranking of the heads is preserved at every $n$}: concat-MLP $>$ dropout
 $>$ cross-attention $>$ dropout (AV).
@@ -713,7 +713,7 @@ The probes show identity in every modality; they do not show whose identity caus
 cross-subject failure. To test this directly, the fusion heads were retrained with
 per-participant standardisation applied to \emph{one} modality at a time, the other two
 keeping the default per-fold statistics (\texttt{cv\_pipeline.py
---subject-norm-only}; same folds, recipe and inner-validation participants).
+-{}-subject-norm-only}; same folds, recipe and inner-validation participants).
 
 \begin{table}[htbp]
 \centering

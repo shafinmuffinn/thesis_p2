@@ -133,7 +133,7 @@ Second, \textbf{concat-MLP and modality-dropout fusion exceed naive late fusion 
 
 Third, \textbf{concat-MLP beats cross-attention} by 3.21 points ($p_{\mathrm{Holm}} = 0.010$, 32 of 42 participants). With single pooled vectors per modality, the attention module's relational inductive bias has only three tokens to relate, and a direct non-linear map over the joint 2{,}496-dimensional feature space extracts more of the available cross-modal information. The same ordering reappears on unseen participants once their features are calibrated (Section~\ref{sec:cal_ranking}), so it is a property of this representation rather than of one protocol.
 
-The attention architecture is nonetheless retained as the thesis's fusion design, for two reasons that do not depend on raw accuracy. It exposes named per-modality post-attention embeddings as outputs of \texttt{forward()}, the contract required by the Phase~2 temporal head (Section~\ref{sec:fusion_design_rationale}); and, as the next section shows, modality-dropout training closes its gap to concat-MLP entirely.
+The attention architecture is nonetheless retained as the thesis's fusion design, for two reasons that do not depend on raw accuracy. It exposes named per-modality post-attention embeddings as outputs of \texttt{forward()}, the contract a future temporal model would need (Section~\ref{sec:pipeline_overview}); and, as the next section shows, modality-dropout training closes its gap to concat-MLP entirely.
 
 \section{Modality Dropout and Robustness}
 \label{sec:modality_dropout_results}

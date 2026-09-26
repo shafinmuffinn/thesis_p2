@@ -1,6 +1,7 @@
 This chapter describes the system end to end: the data, the three encoders, the fusion methods, the coherence analysis, the evaluation protocols, and how the computation was organised. Values stated here are those in the code that produced the results.
 
 \section{Pipeline Overview}
+\label{sec:pipeline_overview}
 The system is built as three stages, each of which writes its outputs to persistent storage before the next begins, so that an interrupted session can resume where it stopped.
 
 \begin{enumerate}
@@ -237,7 +238,7 @@ Table~\ref{tab:p3_scripts} lists the scripts behind Chapters~\ref{chap:within}--
 \small
 \caption{Analysis scripts, their outputs, and where results are reported.}
 \label{tab:p3_scripts}
-\begin{tabular}{p{4.1cm} p{4.9cm} p{4.5cm}}
+\resizebox{\textwidth}{!}{\begin{tabular}{p{4.1cm} p{4.9cm} p{4.5cm}}
 \hline
 \textbf{Script} & \textbf{Output} & \textbf{Reported in} \\
 \hline
@@ -255,7 +256,7 @@ Table~\ref{tab:p3_scripts} lists the scripts behind Chapters~\ref{chap:within}--
 \texttt{p3\_stats.py} & \texttt{p3\_stats/*.csv} & Corrected tests and intervals \\
 \texttt{make\_p3\_figures.py} & \texttt{p3\_figures/*.png} & Final-phase figures \\
 \hline
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \subsection{Software and Reproducibility}

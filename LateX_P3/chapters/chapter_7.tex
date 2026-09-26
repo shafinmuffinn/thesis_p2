@@ -40,7 +40,7 @@ C24 & Uninformative alignment check & Methodological & Alignment claimed but unv
 \section{Environment and Workflow}
 
 \subsection*{C1---A Package That Downgrades Its Environment}
-Installing \texttt{facenet-pytorch} on Colab broke \texttt{torchaudio}, and with it the audio encoder. The package pins an old NumPy and PyTorch, and pip quietly replaced Colab's versions, leaving \texttt{torchaudio}'s compiled extensions incompatible. Since the released EAV files already contain face crops, the package is not needed; setup installs only \texttt{transformers} and \texttt{wandb}, and if face detection is ever required the package is installed with \texttt{--no-deps}.
+Installing \texttt{facenet-pytorch} on Colab broke \texttt{torchaudio}, and with it the audio encoder. The package pins an old NumPy and PyTorch, and pip quietly replaced Colab's versions, leaving \texttt{torchaudio}'s compiled extensions incompatible. Since the released EAV files already contain face crops, the package is not needed; setup installs only \texttt{transformers} and \texttt{wandb}, and if face detection is ever required the package is installed with \texttt{-{}-no-deps}.
 
 \subsection*{C8---Case-Sensitive Folder Names}
 On Colab's Linux file system, EEG files were reported missing while audio and video files loaded. One code path built the EEG folder name with different capitalisation from the folder on Drive, which Linux treats as a different name. A single mapping from modality to folder name (\texttt{Audio}, \texttt{Vision}, \texttt{EEG}) now serves every script.
